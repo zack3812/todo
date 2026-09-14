@@ -732,6 +732,11 @@
   const settingsShortcutValue = document.getElementById('settings-shortcut-value');
   const settingsShortcutChange = document.getElementById('settings-shortcut-change');
   const settingsDefaultTab = document.getElementById('settings-default-tab');
+  const settingsDefaultTabTrigger = document.getElementById('settings-default-tab-trigger');
+  const settingsDefaultTabMenu = document.getElementById('settings-default-tab-menu');
+  if (typeof initCustomSelect === 'function') {
+    initCustomSelect(settingsDefaultTabTrigger, settingsDefaultTabMenu, settingsDefaultTab);
+  }
   const settingsWorkspaceKind = document.getElementById('settings-workspace-kind');
   const settingsWorkspacePath = document.getElementById('settings-workspace-path');
   const settingsWorkspaceOpen = document.getElementById('settings-workspace-open');
@@ -1766,6 +1771,52 @@
     if (settingsAppSettings) settingsAppSettings.autoLaunch = result.autoLaunch === true;
     setSettingsNote(result.autoLaunch ? '已开启开机自动启动。' : '已关闭开机自动启动。');
   });
+  // —— 自动更新（GitHub Release）——
+  const settingsUpdateVersion = document.getElementById('settings-update-version');
+  const settingsUpdateCheck = document.getElementById('settings-update-check');
+  const settingsUpdateStatus = document.getElementById('settings-update-status');
+  function setUpdateStatus(message, error) {
+    if (!settingsUpdateStatus) return;
+    settingsUpdateStatus.textContent = message || '';
+    settingsUpdateStatus.classList.toggle('error', Boolean(error));
+  }
+  function renderUpdateState(state) {
+    if (!state) return;
+    if (settingsUpdateVersion) settingsUpdateVersion.textContent = 'v' + (state.current || '');
+    if (state.hasUpdate) {
+      setUpdateStatus('发现新版本 v' + state.latest + '，点击右侧按钮下载。');
+    } else if (state.ok) {
+      setUpdateStatus('已是最新版本。');
+    } else {
+      setUpdateStatus('检查更新失败（' + (state.error || '网络错误') + '），可稍后重试。', true);
+    }
+    if (state.hasUpdate && settingsUpdateStatus) {
+      settingsUpdateStatus.style.cursor = 'pointer';
+      settingsUpdateStatus.title = '打开下载页面';
+    }
+  }
+  settingsUpdateCheck?.addEventListener('click', async () => {
+    if (!window.notchAPI?.checkForUpdate) return;
+    settingsUpdateCheck.disabled = true;
+    setUpdateStatus('正在检查更新…');
+    const state = await window.notchAPI.checkForUpdate().catch(() => null);
+    settingsUpdateCheck.disabled = false;
+    renderUpdateState(state);
+    if (state?.hasUpdate) {
+      window.notchAPI?.openUpdatePage?.(state.url);
+    }
+  });
+  window.notchAPI?.onUpdateState?.((state) => {
+    renderUpdateState(state);
+    if (state?.hasUpdate && typeof showStatusToast === 'function') {
+      showStatusToast('发现新版本 v' + state.latest + '，可在设置中下载。', {
+        actionLabel: '下载',
+        onAction: () => window.notchAPI?.openUpdatePage?.(state.url),
+        duration: 6000,
+      });
+    }
+  });
+
   window.notchAPI?.onAppSettingsChanged?.((settings) => {
     settingsAppSettings = settings;
     renderSettingsPanel();

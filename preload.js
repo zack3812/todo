@@ -60,6 +60,11 @@ contextBridge.exposeInMainWorld('notchAPI', {
   onWorkspaceChanged: (cb) => subscribe('workspace:changed', (event, info) => cb(info)),
   onCollapseRequest: (cb) => subscribe('window:request-collapse', () => cb()),
   getMetrics: () => ipcRenderer.invoke('window:metrics'),
+  setIgnoreMouse: (ignore) => ipcRenderer.send('window:set-ignore-mouse', ignore === true),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  openUpdatePage: (url) => ipcRenderer.invoke('update:open', url),
+  onUpdateState: (cb) =>
+    subscribe('update:state', (event, state) => cb(state)),
   onMetricsChanged: (cb) =>
     subscribe('window:metrics-changed', (event, metrics) => cb(metrics)),
   writeClipboard: (entry) => ipcRenderer.invoke('clipboard:write', entry),

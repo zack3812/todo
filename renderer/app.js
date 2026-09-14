@@ -6,10 +6,10 @@ const TODO_CATEGORY_KEY = 'notch-todo-category-names-v1';
 const TODO_ORDER_KEY = 'notch-todo-order-v1';
 const TODO_HISTORY_KEY = 'notch-todo-history-v1';
 const TODO_CATEGORY_DEFAULTS = {
-  P0: '课程',
-  P1: '自媒体&写作',
-  P2: 'Vibe coding',
-  P3: '日常',
+  P0: '重要且紧急',
+  P1: '重要不紧急',
+  P2: '紧急不重要',
+  P3: '不重要不紧急',
 };
 
 const app = document.getElementById('app');
@@ -163,6 +163,7 @@ function normalizeTodoItems(value) {
           : '',
         remindedAt: Math.max(0, Number(item.remindedAt) || 0),
         completedAt: typeof item.completedAt === 'string' && item.completedAt ? item.completedAt : '',
+        project: typeof item.project === 'string' ? item.project.trim().slice(0, 24) : '',
       };
     })
     .filter(Boolean);
@@ -243,6 +244,7 @@ function loadTodoHistory() {
       createdAt: Number.isFinite(h.createdAt) ? h.createdAt : Date.now(),
       completedAt: Number.isFinite(h.completedAt) ? h.completedAt : Date.now(),
       deadline: typeof h.deadline === 'string' ? h.deadline : '',
+      project: typeof h.project === 'string' ? h.project : '',
     }));
   } catch (error) {
     return [];
@@ -270,6 +272,7 @@ function migrateDoneTodos() {
         createdAt: item.createdAt || Date.now(),
         completedAt: item.completedAt || Date.now(),
         deadline: item.deadline || '',
+        project: typeof item.project === 'string' ? item.project : '',
       });
     });
     if (list.some((item) => item.done)) {
@@ -291,6 +294,9 @@ let todoCategoryNames = loadTodoCategoryNames();
 const todoSelections = Object.fromEntries(PRIORITIES.map((priority) => [priority, new Set()]));
 const todoSelectionAnchors = Object.fromEntries(PRIORITIES.map((priority) => [priority, null]));
 let editingTodo = null;
+let editingProject = null; // { priority, id } 正在编辑项目名的待办
+let todoGroupView = false; // 待办面板按项目分组树
+let todoGroupCollapsed = new Set(); // `${priority}\u0000${project}` 折叠集合
 
 function loadTodoCategoryNames() {
   try {
@@ -372,6 +378,13 @@ function todoItemHtml(priority, item) {
       minute: '2-digit',
     }).format(new Date(item.deadline))
     : '';
+  const projectName = typeof item.project === 'string' && item.project.trim() ? item.project.trim() : '';
+  const isEditingProject = editingProject && editingProject.priority === priority && editingProject.id === item.id;
+  const projectChipHtml = isEditingProject
+    ? `<input class="todo-project-input" value="${escapeHtml(projectName)}" maxlength="24" aria-label="输入项目名，留空清除" placeholder="项目名，留空清除" />`
+    : projectName
+      ? `<span class="todo-project-chip" data-action="edit-project" data-project="${escapeHtml(projectName)}" style="--project-color:${window.NotchDomain.todoProjectColor(projectName)}" title="项目：${escapeHtml(projectName)}（点击修改）">${escapeHtml(projectName)}</span>`
+      : `<button class="todo-project-chip todo-project-add" type="button" data-action="edit-project" title="添加项目">+</button>`;
   const toggleLabel = item.done ? `恢复未完成：${safeText}` : `标记完成：${safeText}`;
   const battery = window.NotchDomain.todoTimeBattery(item, Date.now());
   // 逾期项整条填满红色并只显示一个白色感叹号：剩余 0% 是「快到了」，
@@ -386,6 +399,7 @@ function todoItemHtml(priority, item) {
   return `
     <li class="todo-item${doneClass}${selectedClass}" data-id="${safeId}" data-priority="${priority}">
       <button class="checkbox" type="button" data-action="toggle" aria-label="${toggleLabel}" aria-pressed="${item.done}">${checkSvg()}</button>
+      ${projectChipHtml}
       ${contentHtml}
       <button class="delete" type="button" data-action="delete" aria-label="删除：${safeText}">×</button>
     </li>
@@ -426,7 +440,21 @@ function renderList(priority, options = {}) {
   const list = document.querySelector(`.todo-list[data-priority="${priority}"]`);
   if (!list) return;
   const items = todoDisplayOrder(priority);
-  list.innerHTML = items.map((item) => todoItemHtml(priority, item)).join('');
+  if (todoGroupView) {
+    const groups = window.NotchDomain.groupTodosByProject(items);
+    list.innerHTML = groups.map((group) => {
+      const collapsed = todoGroupCollapsed.has(`${priority}\u0000${group.project}`);
+      const priColor = { P0: '#FF5F57', P1: '#FF9352', P2: '#30D978', P3: '#438CFF' }[priority] || '#8a8a8a';
+      const head = `<li class="todo-group-head" data-priority="${priority}" data-project="${escapeHtml(group.project)}" style="--project-color:${priColor}">
+        <button class="todo-group-fold" type="button" aria-label="折叠或展开 ${escapeHtml(group.project || '未分组')}" aria-expanded="${String(!collapsed)}">${collapsed ? '▸' : '▾'}</button>
+        <span class="todo-group-name" style="color:${priColor}">${escapeHtml(group.project || '未分组')}</span>
+        <span class="todo-group-count">${group.items.length}</span>
+      </li>`;
+      return head + (collapsed ? '' : group.items.map((item) => todoItemHtml(priority, item)).join(''));
+    }).join('');
+  } else {
+    list.innerHTML = items.map((item) => todoItemHtml(priority, item)).join('');
+  }
   updateTodoBulkButton(priority);
   animateTodoOrder(priority, options.previousPositions);
   if (options.focusId) {
@@ -528,6 +556,7 @@ function toggleTodo(priority, id) {
     createdAt: item.createdAt || completedAt,
     completedAt,
     deadline: item.deadline || '',
+    project: typeof item.project === 'string' ? item.project : '',
   });
   saveData(data);
   saveTodoHistory();
@@ -1101,6 +1130,11 @@ if (topbarEl) {
   });
 }
 
+
+// 窗口失焦/聚焦：折叠态刘海在失焦时透明，避免遮挡其他窗口
+window.addEventListener('blur', () => document.getElementById('app')?.classList.add('inactive'));
+window.addEventListener('focus', () => document.getElementById('app')?.classList.remove('inactive'));
+
 function initTab() {
   setActiveTab('home');
 }
@@ -1130,6 +1164,53 @@ document.querySelectorAll('.todo-category-name[data-category]').forEach((input) 
 
 applyTodoCategoryNames();
 
+// —— 自绘下拉（深色，替代原生 select 白底弹层）——
+function initCustomSelect(trigger, menu, select) {
+  if (!trigger || !menu || !select) return;
+  function renderMenu() {
+    menu.replaceChildren();
+    [...select.options].forEach((option) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'custom-select-option';
+      item.dataset.value = option.value;
+      item.textContent = option.textContent;
+      if (option.value === String(select.value)) item.classList.add('selected');
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        select.value = option.value;
+        trigger.textContent = option.textContent;
+        menu.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      menu.append(item);
+    });
+  }
+  trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    renderMenu();
+    const willOpen = menu.hidden;
+    document.querySelectorAll('.custom-select-menu:not([hidden])').forEach((other) => {
+      if (other !== menu) {
+        other.hidden = true;
+        const sibling = other.previousElementSibling;
+        if (sibling && typeof sibling.setAttribute === 'function') sibling.setAttribute('aria-expanded', 'false');
+      }
+    });
+    menu.hidden = !willOpen;
+    trigger.setAttribute('aria-expanded', String(willOpen));
+  });
+  document.addEventListener('pointerdown', (event) => {
+    if (!menu.hidden && !menu.contains(event.target) && !trigger.contains(event.target)) {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+  const initial = select.options[select.selectedIndex];
+  if (initial) trigger.textContent = initial.textContent;
+}
+
 const todoEditorBackdrop = document.getElementById('todo-date-popover');
 const todoEditorMonth = document.getElementById('todo-editor-month');
 const todoCalendarPrevious = document.getElementById('todo-calendar-previous');
@@ -1137,6 +1218,20 @@ const todoCalendarNext = document.getElementById('todo-calendar-next');
 const todoCalendarGrid = document.getElementById('todo-calendar-grid');
 const todoEditorHour = document.getElementById('todo-editor-hour');
 const todoEditorMinute = document.getElementById('todo-editor-minute');
+const todoEditorHourTrigger = document.getElementById('todo-editor-hour-trigger');
+const todoEditorMinuteTrigger = document.getElementById('todo-editor-minute-trigger');
+function syncTodoTimeTriggers() {
+  if (todoEditorHourTrigger && todoEditorHour) {
+    todoEditorHourTrigger.textContent = String(todoEditorHour.value).padStart(2, '0');
+  }
+  if (todoEditorMinuteTrigger && todoEditorMinute) {
+    todoEditorMinuteTrigger.textContent = String(todoEditorMinute.value).padStart(2, '0');
+  }
+}
+fillTodoTimeOptions();
+initCustomSelect(todoEditorHourTrigger, document.getElementById('todo-editor-hour-menu'), todoEditorHour);
+initCustomSelect(todoEditorMinuteTrigger, document.getElementById('todo-editor-minute-menu'), todoEditorMinute);
+syncTodoTimeTriggers();
 const todoEditorError = document.getElementById('todo-editor-error');
 let todoEditorContext = null;
 let todoEditorYear = new Date().getFullYear();
@@ -1236,6 +1331,7 @@ function openTodoEditor(priority, item = null, anchor = null) {
   fillTodoTimeOptions();
   if (todoEditorHour) todoEditorHour.value = String(selectedDate.getHours());
   if (todoEditorMinute) todoEditorMinute.value = String(Math.floor(selectedDate.getMinutes() / 5) * 5);
+  syncTodoTimeTriggers();
   if (todoEditorError) todoEditorError.textContent = '';
   renderTodoCalendar();
   if (todoEditorBackdrop) {
@@ -1243,12 +1339,12 @@ function openTodoEditor(priority, item = null, anchor = null) {
       ? document.querySelector(`.todo-item[data-id="${CSS.escape(item.id)}"] .todo-inline-deadline`)
       : trigger);
     const quadrant = target?.closest('.quadrant') || document.querySelector(`.quadrant[data-priority="${priority}"]`);
-    quadrant?.appendChild(todoEditorBackdrop);
+    document.body.appendChild(todoEditorBackdrop);
     todoEditorBackdrop.hidden = false;
     todoEditorBackdrop.style.removeProperty('left');
     todoEditorBackdrop.style.removeProperty('top');
-    todoEditorBackdrop.style.right = '12px';
-    todoEditorBackdrop.style.bottom = '58px';
+    todoEditorBackdrop.style.removeProperty('right');
+    todoEditorBackdrop.style.removeProperty('bottom');
   }
   applyTodoEditorSelection(false);
 }
@@ -1258,7 +1354,7 @@ todoCalendarGrid?.addEventListener('click', (event) => {
   if (!button) return;
   todoEditorDay = Number(button.dataset.day);
   renderTodoCalendar();
-  applyTodoEditorSelection(true);
+  if (todoEditorError) todoEditorError.textContent = '';
 });
 function moveTodoCalendar(offset) {
   const shifted = window.NotchDomain.shiftCalendarMonth({
@@ -1275,14 +1371,20 @@ function moveTodoCalendar(offset) {
 
 todoCalendarPrevious?.addEventListener('click', () => moveTodoCalendar(-1));
 todoCalendarNext?.addEventListener('click', () => moveTodoCalendar(1));
-todoEditorHour?.addEventListener('change', () => applyTodoEditorSelection(true));
-todoEditorMinute?.addEventListener('change', () => applyTodoEditorSelection(true));
+todoEditorHour?.addEventListener('change', () => { syncTodoTimeTriggers(); if (todoEditorError) todoEditorError.textContent = ''; });
+todoEditorMinute?.addEventListener('change', () => { syncTodoTimeTriggers(); if (todoEditorError) todoEditorError.textContent = ''; });
 
 document.addEventListener('pointerdown', (event) => {
   if (todoEditorBackdrop?.hidden) return;
+  if (event.target === todoEditorBackdrop) { closeTodoEditor(); return; }
   if (todoEditorBackdrop.contains(event.target) || event.target.closest('.todo-deadline-trigger, .todo-inline-deadline')) return;
   closeTodoEditor();
 }, true);
+
+document.getElementById('todo-editor-confirm')?.addEventListener('click', () => {
+  if (applyTodoEditorSelection(true)) closeTodoEditor();
+});
+document.getElementById('todo-editor-cancel')?.addEventListener('click', () => closeTodoEditor());
 
 function applyDefaultTodoDeadline(trigger, now = new Date()) {
   if (!trigger || (trigger.dataset.deadline && trigger.dataset.deadlineSource !== 'default')) return;
@@ -1393,10 +1495,23 @@ PRIORITIES.forEach((priority) => {
       editTodo(priority, id, name, todo.deadline);
     } else if (action === 'delete') {
       deleteTodo(priority, id);
+    } else if (action === 'edit-project') {
+      editingProject = { priority, id };
+      renderList(priority);
+      requestAnimationFrame(() => {
+        const input = document.querySelector(`.todo-item[data-id="${id}"] .todo-project-input`);
+        input?.focus();
+        input?.select();
+      });
     }
   });
   list.addEventListener('keydown', (event) => {
     const item = event.target.closest('.todo-item');
+    if (event.target.matches('.todo-project-input')) {
+      if (event.key === 'Escape') { editingProject = null; renderList(priority); }
+      else if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.target.blur(); }
+      return;
+    }
     if (!item || !event.target.matches('.todo-inline-name')) return;
     if (event.key === 'Escape') {
       editingTodo = null;
@@ -1404,6 +1519,34 @@ PRIORITIES.forEach((priority) => {
     } else if (event.key === 'Enter' && !event.isComposing) {
       event.preventDefault();
       item.querySelector('[data-action="save-edit"]')?.click();
+    }
+  });
+
+  list.addEventListener('focusout', (event) => {
+    if (!event.target.matches('.todo-project-input')) return;
+    const input = event.target;
+    const value = input.value.trim().slice(0, 24);
+    const itemEl = input.closest('.todo-item');
+    if (itemEl && editingProject) {
+      const list2 = data[editingProject.priority] || [];
+      const idx = list2.findIndex((todo) => todo.id === editingProject.id);
+      if (idx !== -1) {
+        if (value) list2[idx].project = value;
+        else delete list2[idx].project;
+        saveData(data);
+        // 原位替换 chip，不重建整行：避免打断进行中的长按拖拽
+        const slot = itemEl.querySelector('.todo-project-chip, .todo-project-add, .todo-project-input');
+        if (slot) {
+          const priColor = { P0: '#FF5F57', P1: '#FF9352', P2: '#30D978', P3: '#438CFF' }[editingProject.priority] || '#8a8a8a';
+          const fresh = value
+            ? `<span class="todo-project-chip" data-action="edit-project" data-project="${escapeHtml(value)}" style="--project-color:${priColor}" title="项目：${escapeHtml(value)}（点击修改）">${escapeHtml(value)}</span>`
+            : `<button class="todo-project-chip todo-project-add" type="button" data-action="edit-project" title="添加项目">+</button>`;
+          slot.outerHTML = fresh;
+        }
+      }
+      editingProject = null;
+    } else {
+      editingProject = null;
     }
   });
 });
@@ -1417,8 +1560,8 @@ let todoDrag = null;
 let suppressTodoClick = false;
 
 function clearTodoDropMarks() {
-  document.querySelectorAll('.todo-item.drop-before, .todo-item.drop-after').forEach((item) => {
-    item.classList.remove('drop-before', 'drop-after');
+  document.querySelectorAll('.todo-item.drop-before, .todo-item.drop-after, .todo-group-head.drop-project').forEach((el) => {
+    el.classList.remove('drop-before', 'drop-after', 'drop-project');
   });
 }
 
@@ -1440,6 +1583,17 @@ function updateTodoDropTarget(clientX, clientY) {
   todoDrag.target = null;
   const under = document.elementFromPoint(clientX, clientY);
   if (!under) return;
+  // 拖到项目分组头：自动归纳到该项目（移入该列并归组）
+  const overHead = under.closest('.todo-group-head[data-project]');
+  if (overHead) {
+    overHead.classList.add('drop-project');
+    todoDrag.target = {
+      priority: overHead.dataset.priority,
+      index: -1,
+      project: overHead.dataset.project,
+    };
+    return;
+  }
   const overItem = under.closest('.todo-item[data-id]');
   // 压在被拖那一行自己身上 = 放回原处，目标留空，松手什么都不做。
   if (overItem === todoDrag.row) return;
@@ -1447,10 +1601,12 @@ function updateTodoDropTarget(clientX, clientY) {
     const rect = overItem.getBoundingClientRect();
     const after = clientY > rect.top + rect.height / 2;
     overItem.classList.add(after ? 'drop-after' : 'drop-before');
-    const rows = Array.from(overItem.parentElement.querySelectorAll('.todo-item[data-id]'));
+    // 分组视图下 DOM 顺序与平铺数据顺序不同，索引一律按平铺显示顺序计算
+    const overItems = todoDisplayOrder(overItem.dataset.priority);
+    const overIdx = overItems.findIndex((todo) => todo.id === overItem.dataset.id);
     todoDrag.target = {
       priority: overItem.dataset.priority,
-      index: rows.indexOf(overItem) + (after ? 1 : 0),
+      index: overIdx + (after ? 1 : 0),
     };
     return;
   }
@@ -1458,7 +1614,7 @@ function updateTodoDropTarget(clientX, clientY) {
   if (!overList) return;
   todoDrag.target = {
     priority: overList.dataset.priority,
-    index: overList.querySelectorAll('.todo-item[data-id]').length,
+    index: todoDisplayOrder(overList.dataset.priority).length,
   };
 }
 
@@ -1473,17 +1629,38 @@ function applyTodoMove(fromPriority, id, target) {
   const prevIndex = ids.indexOf(id);
   if (prevIndex !== -1) ids.splice(prevIndex, 1);
   let targetIndex = target.index;
-  if (prevIndex !== -1 && prevIndex < targetIndex) targetIndex -= 1;
+  if (target.project) {
+    // 拖到项目分组头：自动归纳到该项目，追加到该组现有项之后
+    item.project = target.project;
+    let groupEnd = 0;
+    for (const other of data[toPriority] || []) {
+      if (other.id === id || String(other.project || '') !== target.project) continue;
+      const otherIdx = ids.indexOf(other.id);
+      if (otherIdx !== -1) groupEnd = Math.max(groupEnd, otherIdx + 1);
+    }
+    targetIndex = groupEnd;
+  } else {
+    if (prevIndex !== -1 && prevIndex < targetIndex) targetIndex -= 1;
+  }
   targetIndex = Math.max(0, Math.min(targetIndex, ids.length));
-  if (prevIndex !== -1 && targetIndex === prevIndex) return false;
+  if (prevIndex !== -1 && targetIndex === prevIndex && !target.project) return false;
   ids.splice(targetIndex, 0, id);
   fromList.splice(idx, 1);
   if (fromPriority !== toPriority) {
     (data[toPriority] || (data[toPriority] = [])).push(item);
+  } else {
+    // 同列排序：数据数组里放回原项，显示顺序由 todoOrder 控制，避免待办丢失
+    data[fromPriority] = data[fromPriority] || [];
+    data[fromPriority].push(item);
   }
   todoOrder[toPriority] = ids;
   if (fromPriority !== toPriority && todoOrder[fromPriority]) {
     todoOrder[fromPriority] = todoOrder[fromPriority].filter((other) => other !== id);
+  }
+  // 跨列拖入且仍未设项目时，归入目标列表出现最多的项目，方便周末归纳
+  if (fromPriority !== toPriority && !item.project) {
+    const dominant = window.NotchDomain.dominantProject(data[toPriority] || []);
+    if (dominant) item.project = dominant;
   }
   saveData(data);
   saveTodoOrder();
@@ -1570,6 +1747,34 @@ document.addEventListener('pointerup', (event) => {
     updateCount(priority);
   });
   showStatusToast(fromPriority === target.priority ? '待办顺序已更新' : '待办已移动');
+});
+
+
+// ============ 折叠态点击穿透：黑条可点，黑条旁穿透到下方应用 ============
+// 主进程在折叠态默认整体穿透（forward 转发 mousemove），这里按鼠标是否落在黑条上
+// 动态恢复/保持穿透：鼠标在黑条内 -> 可点击（点开工作台），在黑条旁 -> 点击落到下方应用。
+let notchPenetrable = true; // 与主进程当前 setIgnoreMouseEvents 状态一致
+
+function updateNotchPenetration(clientX, clientY) {
+  if (isExpanded) {
+    if (!notchPenetrable) {
+      notchPenetrable = true;
+      window.notchAPI?.setIgnoreMouse?.(false);
+    }
+    return;
+  }
+  const notch = document.getElementById('notch');
+  if (!notch) return;
+  const r = notch.getBoundingClientRect();
+  const over = clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+  const penetrate = !over;
+  if (penetrate === notchPenetrable) return;
+  notchPenetrable = penetrate;
+  window.notchAPI?.setIgnoreMouse?.(penetrate);
+}
+
+document.addEventListener('pointermove', (event) => {
+  updateNotchPenetration(event.clientX, event.clientY);
 });
 
 document.addEventListener('pointercancel', () => cancelTodoDrag());
@@ -4146,6 +4351,7 @@ function restoreTodoFromHistory(id) {
     done: false,
     createdAt: h.createdAt,
     deadline: h.deadline || '',
+    project: typeof h.project === 'string' ? h.project : '',
     remindedAt: 0,
   });
   saveData(data);
@@ -4187,3 +4393,26 @@ historyList?.addEventListener('click', (event) => {
 });
 document.getElementById('todo-history-clear')?.addEventListener('click', clearTodoHistory);
 updateTodoHistoryUI();
+
+// ============ 待办 · 项目分组视图（树形，可按项目归纳） ============
+const todoGroupToggle = document.getElementById('todo-group-toggle');
+todoGroupToggle?.addEventListener('click', () => {
+  todoGroupView = !todoGroupView;
+  todoGroupToggle.classList.toggle('active', todoGroupView);
+  PRIORITIES.forEach((priority) => renderList(priority));
+});
+document.querySelectorAll('.todo-list').forEach((list) => {
+  list.addEventListener('click', (event) => {
+    const head = event.target.closest('.todo-group-head');
+    if (!head || !event.target.closest('.todo-group-fold')) return;
+    const key = `${head.dataset.priority}\u0000${head.dataset.project}`;
+    if (todoGroupCollapsed.has(key)) todoGroupCollapsed.delete(key);
+    else todoGroupCollapsed.add(key);
+    try {
+      localStorage.setItem('notch-todo-group-collapsed-v1', JSON.stringify([...todoGroupCollapsed]));
+    } catch (error) {
+      // ignore quota errors
+    }
+    renderList(head.dataset.priority);
+  });
+});

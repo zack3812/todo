@@ -226,13 +226,14 @@
             <div class="todo-view-switch" role="tablist" aria-label="待办视图切换">
               <button class="todo-view-tab active" type="button" data-todo-view="active" role="tab" aria-selected="true">待办</button>
               <button class="todo-view-tab" type="button" data-todo-view="history" role="tab" aria-selected="false">历史<span class="todo-history-count" id="todo-history-count">0</span></button>
+              <button class="todo-view-tab todo-group-toggle" type="button" id="todo-group-toggle" title="按项目分组查看，方便归纳">分组</button>
             </div>
             <div class="sections" id="todo-active-view">
 
               <section class="quadrant tile" data-priority="P0">
                 <div class="quadrant-header">
                   <span class="dot dot-p0"></span>
-                  <input class="todo-category-name" data-category="P0" value="课程" maxlength="24" aria-label="修改待办分类名称" />
+                  <input class="todo-category-name" data-category="P0" value="重要且紧急" maxlength="24" aria-label="修改待办分类名称" />
                   <button class="bulk-delete todo-bulk-delete" type="button" data-bulk-priority="P0" hidden>删除</button>
                   <span class="count" data-priority="P0">0</span>
                 </div>
@@ -241,18 +242,18 @@
                   <input
                     type="text"
                     placeholder="添加待办，回车保存…"
-                    aria-label="添加课程待办"
+                    aria-label="添加重要且紧急待办"
                     data-priority="P0"
                     maxlength="80"
                   />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P0" aria-label="选择课程待办截止时间"><span>日期</span></button>
+                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P0" aria-label="选择重要且紧急待办截止时间"><span>日期</span></button>
                 </div>
               </section>
 
               <section class="quadrant tile" data-priority="P1">
                 <div class="quadrant-header">
                   <span class="dot dot-p1"></span>
-                  <input class="todo-category-name" data-category="P1" value="自媒体&amp;写作" maxlength="24" aria-label="修改待办分类名称" />
+                  <input class="todo-category-name" data-category="P1" value="重要不紧急" maxlength="24" aria-label="修改待办分类名称" />
                   <button class="bulk-delete todo-bulk-delete" type="button" data-bulk-priority="P1" hidden>删除</button>
                   <span class="count" data-priority="P1">0</span>
                 </div>
@@ -261,18 +262,18 @@
                   <input
                     type="text"
                     placeholder="添加待办，回车保存…"
-                    aria-label="添加自媒体和写作待办"
+                    aria-label="添加重要不紧急待办"
                     data-priority="P1"
                     maxlength="80"
                   />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P1" aria-label="选择自媒体待办截止时间"><span>日期</span></button>
+                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P1" aria-label="选择重要不紧急待办截止时间"><span>日期</span></button>
                 </div>
               </section>
 
               <section class="quadrant tile" data-priority="P2">
                 <div class="quadrant-header">
                   <span class="dot dot-p2"></span>
-                  <input class="todo-category-name" data-category="P2" value="Vibe coding" maxlength="24" aria-label="修改待办分类名称" />
+                  <input class="todo-category-name" data-category="P2" value="紧急不重要" maxlength="24" aria-label="修改待办分类名称" />
                   <button class="bulk-delete todo-bulk-delete" type="button" data-bulk-priority="P2" hidden>删除</button>
                   <span class="count" data-priority="P2">0</span>
                 </div>
@@ -281,18 +282,18 @@
                   <input
                     type="text"
                     placeholder="添加待办，回车保存…"
-                    aria-label="添加 Vibe coding 待办"
+                    aria-label="添加紧急不重要待办"
                     data-priority="P2"
                     maxlength="80"
                   />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P2" aria-label="选择 Vibe coding 待办截止时间"><span>日期</span></button>
+                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P2" aria-label="选择紧急不重要待办截止时间"><span>日期</span></button>
                 </div>
               </section>
 
               <section class="quadrant tile" data-priority="P3">
                 <div class="quadrant-header">
                   <span class="dot dot-p3"></span>
-                  <input class="todo-category-name" data-category="P3" value="日常" maxlength="24" aria-label="修改待办分类名称" />
+                  <input class="todo-category-name" data-category="P3" value="不重要不紧急" maxlength="24" aria-label="修改待办分类名称" />
                   <button class="bulk-delete todo-bulk-delete" type="button" data-bulk-priority="P3" hidden>删除</button>
                   <span class="count" data-priority="P3">0</span>
                 </div>
@@ -301,11 +302,11 @@
                   <input
                     type="text"
                     placeholder="添加待办，回车保存…"
-                    aria-label="添加日常待办"
+                    aria-label="添加不重要不紧急待办"
                     data-priority="P3"
                     maxlength="80"
                   />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P3" aria-label="选择日常待办截止时间"><span>日期</span></button>
+                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P3" aria-label="选择不重要不紧急待办截止时间"><span>日期</span></button>
                 </div>
               </section>
             </div>
@@ -484,19 +485,23 @@
                     <div><span>唤出快捷键</span><strong id="settings-shortcut-value">Space</strong></div>
                     <button id="settings-shortcut-change" type="button">重新设置</button>
                   </div>
-                  <label class="settings-device-row settings-default-tab-row">
+                  <div class="settings-device-row settings-default-tab-row">
                     <div><span>默认展开页</span><strong>每次唤出面板时显示</strong></div>
-                    <select id="settings-default-tab" aria-label="默认展开页">
-                      <option value="home">首页</option>
-                      <option value="todo">待办</option>
-                      <option value="notes">笔记</option>
-                      <option value="links">链接</option>
-                      <option value="recordings">录制</option>
-                      <option value="credentials">密钥</option>
-                      <option value="clip">剪贴板</option>
-                      <option value="settings">设置</option>
-                    </select>
-                  </label>
+                    <div class="custom-select settings-default-tab-select" id="settings-default-tab-wrap">
+                      <button type="button" class="custom-select-trigger" id="settings-default-tab-trigger" aria-haspopup="listbox" aria-label="默认展开页">首页</button>
+                      <div class="custom-select-menu" role="listbox" id="settings-default-tab-menu" hidden></div>
+                      <select id="settings-default-tab" aria-label="默认展开页" hidden>
+                        <option value="home">首页</option>
+                        <option value="todo">待办</option>
+                        <option value="notes">笔记</option>
+                        <option value="links">链接</option>
+                        <option value="recordings">录制</option>
+                        <option value="credentials">密钥</option>
+                        <option value="clip">剪贴板</option>
+                        <option value="settings">设置</option>
+                      </select>
+                    </div>
+                  </div>
                   <div class="settings-device-row settings-workspace-row">
                     <div><span>数据文件夹 · <em id="settings-workspace-kind">默认文件夹</em></span><strong id="settings-workspace-path">读取中…</strong></div>
                     <span class="settings-device-actions">
@@ -511,6 +516,17 @@
                   </label>
                   <p class="settings-inline-note" id="settings-inline-note" role="status" aria-live="polite"></p>
                 </section>
+
+                <section class="tile settings-card settings-update-card">
+                  <div class="settings-card-heading">
+                    <div><span class="tile-label">关于</span><strong>版本与更新</strong></div>
+                  </div>
+                  <div class="settings-device-row">
+                    <div><span>当前版本</span><strong id="settings-update-version">读取中…</strong></div>
+                    <button id="settings-update-check" type="button">检查更新</button>
+                  </div>
+                  <p class="settings-inline-note" id="settings-update-status" role="status" aria-live="polite"></p>
+                </section>
               </div>
             </div>
           </section>
@@ -524,8 +540,24 @@
             </header>
             <div class="todo-calendar-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
             <div class="todo-calendar-grid" id="todo-calendar-grid"></div>
-            <div class="todo-time-row"><span>截止时间</span><select id="todo-editor-hour" aria-label="小时"></select><b>:</b><select id="todo-editor-minute" aria-label="分钟"></select></div>
+            <div class="todo-time-row"><span>截止时间</span>
+                <div class="custom-select custom-select-time" id="todo-hour-wrap">
+                  <button type="button" class="custom-select-trigger" id="todo-editor-hour-trigger" aria-haspopup="listbox" aria-label="小时">00</button>
+                  <div class="custom-select-menu" role="listbox" id="todo-editor-hour-menu" hidden></div>
+                  <select id="todo-editor-hour" aria-label="小时" hidden></select>
+                </div>
+                <b>:</b>
+                <div class="custom-select custom-select-time" id="todo-minute-wrap">
+                  <button type="button" class="custom-select-trigger" id="todo-editor-minute-trigger" aria-haspopup="listbox" aria-label="分钟">00</button>
+                  <div class="custom-select-menu" role="listbox" id="todo-editor-minute-menu" hidden></div>
+                  <select id="todo-editor-minute" aria-label="分钟" hidden></select>
+                </div>
+              </div>
             <p id="todo-editor-error" role="status"></p>
+            <div class="todo-editor-actions">
+              <button type="button" class="workspace-button compact" id="todo-editor-cancel">取消</button>
+              <button type="button" class="workspace-button compact primary" id="todo-editor-confirm">确定</button>
+            </div>
           </section>
         </div>
 

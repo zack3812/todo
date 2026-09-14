@@ -6,7 +6,7 @@ const title = "TO-DO Panel — Mac 与 Windows 的贴顶工作台";
 const description = "适用于 macOS 与 Windows 的本地工作台：首页、待办、笔记、链接、录制、密钥与可选剪贴板，数据留在自己的电脑。";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://xiaopu-ai.github.io/TO-DO-Panel/"),
+  metadataBase: new URL("https://zack3812.github.io/todo/"),
   title,
   description,
   applicationName: "TO-DO Panel",

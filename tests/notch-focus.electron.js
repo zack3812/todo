@@ -226,6 +226,8 @@ async function main() {
             },
             workspace: Boolean(document.getElementById('settings-workspace-choose')),
             autoLaunch: Boolean(document.getElementById('settings-auto-launch')),
+            update: Boolean(document.getElementById('settings-update-check')),
+            updateVersion: Boolean(document.getElementById('settings-update-version')),
           });
         }, 80);
       })
@@ -246,6 +248,8 @@ async function main() {
       defaultTab: { exists: true, value: 'home', options: 8 },
       workspace: true,
       autoLaunch: true,
+      update: true,
+      updateVersion: true,
     });
 
     const defaultTabOpening = await window.webContents.executeJavaScript(`
@@ -489,7 +493,9 @@ async function main() {
         const day = [...document.querySelectorAll('#todo-calendar-grid [data-day]')]
           .find((button) => button.dataset.day === '2');
         day.click();
+        document.getElementById('todo-editor-confirm').click();
         const selected = new Date(trigger.dataset.deadline);
+        trigger.click();
         previous.click();
         resolve({
           controls: true,

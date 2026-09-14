@@ -55,6 +55,9 @@ const {
   normalizeDefaultTabPreference,
   updateDefaultTabPreference,
   createForegroundMediaPermissionCoordinator,
+  parseSemver,
+  isNewerVersion,
+  fetchLatestRelease,
 } = require('./main-services');
 
 // Keep the historical data directory so upgrading users retain notes, links,
@@ -387,7 +390,9 @@ function applyMode(mode, display) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   cancelCollapseWatchdog();
   mainWindow.setBounds(getBoundsForMode(mode, display));
-  mainWindow.setIgnoreMouseEvents(false);
+  // 折叠态整体点击穿透（forward 转发 mousemove），渲染层按黑条命中动态恢复可点；
+  // 展开面板需要完整交互，始终可点。
+  mainWindow.setIgnoreMouseEvents(mode === 'collapsed', { forward: true });
   currentMode = mode;
   if (mode === 'expanded') hideWhenCollapsed = false;
   if (mode === 'collapsed' && hideWhenCollapsed) {
@@ -1524,6 +1529,12 @@ function getLayoutMetrics(display) {
   };
 }
 
+// 折叠态下渲染层按黑条命中报告是否穿透：黑条上可点击，旁边穿透到下方应用。
+ipcMain.on('window:set-ignore-mouse', (event, ignore) => {
+  if (!mainWindow || mainWindow.isDestroyed() || currentMode !== 'collapsed') return;
+  mainWindow.setIgnoreMouseEvents(ignore === true, { forward: true });
+});
+
 ipcMain.handle('window:metrics', () => {
   return getLayoutMetrics();
 });
@@ -1570,6 +1581,52 @@ ipcMain.handle('media:camera', () => requestMacMediaAccess('camera'));
 ipcMain.handle('media:microphone', () => requestMacMediaAccess('microphone'));
 
 ipcMain.handle('tasks:recent', () => taskCompletionHistory);
+
+
+// ============ 自动更新（GitHub Release 检测）============
+const UPDATE_REPO = 'zack3812/todo';
+const UPDATE_INITIAL_DELAY_MS = 8000;
+const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
+let updatePollTimer = null;
+let cachedUpdateState = null;
+
+async function checkForUpdate() {
+  const current = app.getVersion();
+  const token = process.env.TODO_GH_TOKEN || process.env.GITHUB_TOKEN || '';
+  const result = await fetchLatestRelease({ repo: UPDATE_REPO, token });
+  if (!result.ok) {
+    cachedUpdateState = { current, ok: false, error: result.error, hasUpdate: false, latest: null, url: null };
+    return cachedUpdateState;
+  }
+  cachedUpdateState = {
+    current,
+    ok: true,
+    hasUpdate: isNewerVersion(result.latest, current),
+    latest: result.latest,
+    url: result.url,
+  };
+  return cachedUpdateState;
+}
+
+function sendUpdateState(state) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update:state', state);
+  }
+}
+
+function startUpdateChecker() {
+  setTimeout(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_INITIAL_DELAY_MS);
+  updatePollTimer = setInterval(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_POLL_MS);
+}
+
+function stopUpdateChecker() {
+  if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
+}
+
+ipcMain.handle('update:check', async () => checkForUpdate());
+ipcMain.handle('update:open', (event, url) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) return shell.openExternal(url);
+});
 
 // 快捷链接：URL 走外部浏览器（仅 http/https），本地路径走系统打开（仅绝对路径）
 ipcMain.handle('shell:openExternal', (event, url) => {
@@ -3351,6 +3408,7 @@ app.whenReady().then(() => {
   ensureRecordingsDir();
   applyAppSettings();
   startTaskNotificationServer();
+  startUpdateChecker();
   void promptForMissingPermissions();
 
   app.on('activate', () => {
@@ -3377,4 +3435,5 @@ app.on('will-quit', () => {
   closeAllTranscriptionSessions();
   globalShortcut.unregisterAll();
   stopClipboardPolling();
+  stopUpdateChecker();
 });

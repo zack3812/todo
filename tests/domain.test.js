@@ -616,7 +616,7 @@ test('home layout swaps complete slot assignments without duplicates', () => {
 
 test('todo category names migrate to work streams and reject blank edits', () => {
   const defaults = {
-    P0: '课程',
+    P0: '重要且紧急',
     P1: '自媒体&写作',
     P2: 'Vibe coding',
     P3: '日常',
@@ -808,25 +808,26 @@ test('mirror pinch zooms only a live camera and stays within safe bounds', () =>
 });
 
 test('todo time battery reports the remaining share with exact color boundaries', () => {
-  const createdAt = Date.parse('2026-08-21T00:00:00.000Z');
   const deadline = '2026-08-21T10:00:00.000Z';
-  const todo = { createdAt, deadline, done: false };
-  assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-21T02:00:00.000Z')), {
-    percent: 80,
+  const todo = { deadline, done: false };
+  // 距截止 ≥ 24h：满格 100%，不再受创建时间影响
+  assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-20T09:00:00.000Z')), {
+    percent: 100,
     tone: 'green',
     overdue: false,
-    label: '剩余 80%',
+    label: '剩余 100%',
   });
-  assert.equal(todoTimeBattery(todo, Date.parse('2026-08-21T05:00:00.000Z')).tone, 'yellow');
-  assert.equal(todoTimeBattery(todo, Date.parse('2026-08-21T07:00:00.000Z')).tone, 'red');
+  // 剩 8h → 33%
+  assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-21T02:00:00.000Z')), {
+    percent: 33,
+    tone: 'orange',
+    overdue: false,
+    label: '剩余 33%',
+  });
+  // 剩 5h → 21%，进入红色
+  assert.equal(todoTimeBattery(todo, Date.parse('2026-08-21T05:00:00.000Z')).tone, 'red');
   // 恰好压在截止点上就算逾期，不再是「剩余 0%」。
   assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-21T10:00:00.000Z')), {
-    percent: 0,
-    tone: 'red',
-    overdue: true,
-    label: '已逾期',
-  });
-  assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-21T11:00:00.000Z')), {
     percent: 0,
     tone: 'red',
     overdue: true,
@@ -837,8 +838,8 @@ test('todo time battery reports the remaining share with exact color boundaries'
   assert.equal(almostDue.overdue, false);
   assert.equal(almostDue.percent, 0);
   assert.equal(almostDue.label, '剩余 0%');
-  assert.equal(todoTimeBattery({ createdAt, deadline, done: true }, createdAt), null);
-  assert.deepEqual(todoTimeBattery({ deadline }, createdAt), {
+  assert.equal(todoTimeBattery({ deadline, done: true }, Date.parse('2026-08-21T02:00:00.000Z')), null);
+  assert.deepEqual(todoTimeBattery({}, Date.parse('2026-08-21T02:00:00.000Z')), {
     percent: 0,
     tone: 'red',
     overdue: false,
@@ -872,4 +873,35 @@ test('credential selection can toggle its only selected row off', () => {
     selected: [],
     anchor: null,
   });
+});
+
+test('todo project grouping keeps first-seen order and isolates ungrouped items', () => {
+  const groups = domain.groupTodosByProject([
+    { id: 'a', text: 'A', project: 'Woorinet' },
+    { id: 'b', text: 'B', project: '' },
+    { id: 'c', text: 'C', project: 'Woorinet' },
+    { id: 'd', text: 'D', project: '官网' },
+  ]);
+  assert.deepEqual(
+    groups.map((g) => [g.project, g.items.map((i) => i.id)]),
+    [
+      ['Woorinet', ['a', 'c']],
+      ['', ['b']],
+      ['官网', ['d']],
+    ]
+  );
+});
+
+test('dominant project returns the most frequent named project or empty string', () => {
+  assert.equal(domain.dominantProject([{ project: 'Woorinet' }, { project: 'Woorinet' }, { project: '官网' }, { project: '' }]), 'Woorinet');
+  assert.equal(domain.dominantProject([{ project: '' }, { project: '' }]), '');
+  assert.equal(domain.dominantProject([]), '');
+  assert.equal(domain.dominantProject([{ project: '  ' }]), '');
+});
+
+test('todo project color is deterministic per project name', () => {
+  const first = domain.todoProjectColor('Woorinet');
+  assert.equal(domain.todoProjectColor('Woorinet'), first);
+  assert.equal(typeof first, 'string');
+  assert.ok(first.startsWith('#'));
 });

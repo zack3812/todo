@@ -565,18 +565,18 @@
 
   function todoTimeBattery(todo, now = Date.now()) {
     if (!todo || todo.done === true) return null;
-    const createdAt = Number(todo.createdAt);
     const deadline = Date.parse(String(todo.deadline || ''));
     const current = Number(now);
-    const total = deadline - createdAt;
     if (!Number.isFinite(current)) return null;
-    if (!Number.isFinite(deadline) || !Number.isFinite(createdAt) || total <= 0) {
+    if (!Number.isFinite(deadline)) {
       return { percent: 0, tone: 'red', overdue: false, label: '待补充有效截止时间' };
     }
     // 逾期必须与「剩余 0%」分开：后者只是取整落到 0，前者已经欠账。
     // 逾期项的电量条改为整条填满 + 白色感叹号，不能再显示成一条空槽。
     const overdue = current >= deadline;
-    const percent = Math.round(Math.max(0, Math.min(1, (deadline - current) / total)) * 100);
+    // 以截止前 24 小时为满格：当天任务白天就能看到进度衰减，不再受创建时间影响
+    const DAY_MS = 24 * 3600 * 1000;
+    const percent = Math.round(Math.max(0, Math.min(1, (deadline - current) / DAY_MS)) * 100);
     const tone = percent >= 80 ? 'green' : percent >= 50 ? 'yellow' : percent > 30 ? 'orange' : 'red';
     return {
       percent,
@@ -914,6 +914,46 @@
     return Math.round(next * 100) / 100;
   }
 
+  const PROJECT_PALETTE = ['#5B8CFF', '#FF9F43', '#3DDC97', '#FF5F57', '#A78BFA', '#38BDF8', '#F472B6', '#FACC15'];
+
+  // 项目名 → 稳定配色（哈希取色，同一项目永远同色）
+  function todoProjectColor(project) {
+    const name = String(project || '');
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+    return PROJECT_PALETTE[hash % PROJECT_PALETTE.length];
+  }
+
+  // 待办按项目分组：无项目归入空串「未分组」，组序按首次出现顺序
+  function groupTodosByProject(items) {
+    const order = [];
+    const map = new Map();
+    for (const item of Array.isArray(items) ? items : []) {
+      if (!item || typeof item !== 'object') continue;
+      const project = String(item.project || '').trim();
+      if (!map.has(project)) { map.set(project, []); order.push(project); }
+      map.get(project).push(item);
+    }
+    return order.map((project) => ({ project, items: map.get(project) }));
+  }
+
+  // 列表中出现次数最多的项目名（空串表示无项目），用于拖拽自动归纳
+  function dominantProject(items) {
+    const counts = new Map();
+    for (const item of Array.isArray(items) ? items : []) {
+      const project = String(item && item.project || '').trim();
+      if (!project) continue;
+      counts.set(project, (counts.get(project) || 0) + 1);
+    }
+    let best = '';
+    let bestCount = 0;
+    counts.forEach((count, project) => {
+      if (count > bestCount) { best = project; bestCount = count; }
+    });
+    return best;
+  }
+
+
   return {
     normalizeHttpUrl,
     classifyLink,
@@ -966,5 +1006,8 @@
     shouldTogglePanelForSpace,
     shouldHandleMirrorPinch,
     adjustMirrorZoom,
+    todoProjectColor,
+    groupTodosByProject,
+    dominantProject,
   };
 });

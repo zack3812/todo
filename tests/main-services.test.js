@@ -31,6 +31,9 @@ const {
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
   createForegroundMediaPermissionCoordinator,
+  parseSemver,
+  isNewerVersion,
+  fetchLatestRelease,
 } = require('../main-services');
 
 test('media permission prompts temporarily leave the screen-saver window layer', async () => {
@@ -649,4 +652,59 @@ test('Soda Music play uses the play/pause toggle instead of the next-track key',
   assert.deepEqual(sodaShortcutSpec('previous'), { keyCode: 123, command: true, dismissOverlays: true });
   assert.notDeepEqual(sodaShortcutSpec('play'), sodaShortcutSpec('next'));
   assert.equal(sodaShortcutSpec('invalid'), null);
+});
+
+// —— 自动更新（GitHub Release）——
+test('parseSemver parses v-prefixed and bare versions', () => {
+  assert.deepEqual(parseSemver('1.2.0'), { major: 1, minor: 2, patch: 0 });
+  assert.deepEqual(parseSemver('v1.2.0'), { major: 1, minor: 2, patch: 0 });
+  assert.deepEqual(parseSemver('  v1.2.0-alpha '), { major: 1, minor: 2, patch: 0 });
+  assert.equal(parseSemver('abc'), null);
+  assert.equal(parseSemver(''), null);
+});
+
+test('isNewerVersion compares major/minor/patch', () => {
+  assert.equal(isNewerVersion('1.2.1', '1.2.0'), true);
+  assert.equal(isNewerVersion('1.3.0', '1.2.9'), true);
+  assert.equal(isNewerVersion('2.0.0', '1.9.9'), true);
+  assert.equal(isNewerVersion('1.2.0', '1.2.0'), false);
+  assert.equal(isNewerVersion('1.2.0', '1.2.1'), false);
+  assert.equal(isNewerVersion('1.2.0', '1.3.0'), false);
+  assert.equal(isNewerVersion('v1.2.1', '1.2.0'), true);
+  assert.equal(isNewerVersion('bad', '1.2.0'), false);
+});
+
+test('fetchLatestRelease resolves GitHub latest and reports failures', async () => {
+  const okImpl = async () => ({
+    ok: true,
+    json: async () => ({ tag_name: 'v1.2.1', html_url: 'https://github.com/zack3812/todo/releases/tag/v1.2.1', name: 'TO-DO Panel 1.2.1' }),
+  });
+  const result = await fetchLatestRelease({ fetchImpl: okImpl });
+  assert.equal(result.ok, true);
+  assert.equal(result.latest, '1.2.1');
+  assert.equal(result.url, 'https://github.com/zack3812/todo/releases/tag/v1.2.1');
+
+  const notFound = await fetchLatestRelease({ fetchImpl: async () => ({ ok: false, status: 404 }) });
+  assert.equal(notFound.ok, false);
+  assert.equal(notFound.error, 'http_404');
+
+  const noTag = await fetchLatestRelease({ fetchImpl: async () => ({ ok: true, json: async () => ({}) }) });
+  assert.equal(noTag.ok, false);
+  assert.equal(noTag.error, 'no_tag');
+
+  const network = await fetchLatestRelease({ fetchImpl: async () => { throw new Error('boom'); } });
+  assert.equal(network.ok, false);
+  assert.equal(network.error, 'network');
+});
+
+test('fetchLatestRelease sends bearer token when provided', async () => {
+  let seenHeader = '';
+  const impl = async (_url, opts) => {
+    seenHeader = (opts.headers && opts.headers.Authorization) || '';
+    return { ok: true, json: async () => ({ tag_name: 'v1.2.2', html_url: 'https://github.com/x/releases/tag/v1.2.2' }) };
+  };
+  const r = await fetchLatestRelease({ fetchImpl: impl, token: 'ghp_test' });
+  assert.equal(r.ok, true);
+  assert.equal(r.latest, '1.2.2');
+  assert.equal(seenHeader, 'Bearer ghp_test');
 });

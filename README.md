@@ -4,18 +4,18 @@
   <p><strong>Mac 与 Windows 的贴顶工作台。</strong></p>
   <p>待办、随笔记、链接、录音与本机 AI 提醒，始终贴顶待命。</p>
   <p>
-    <a href="https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest"><strong>下载 macOS 版</strong></a>
+    <a href="https://github.com/zack3812/todo/releases/latest"><strong>下载 macOS 版</strong></a>
     ·
-    <a href="https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest"><strong>下载 Windows 版</strong></a>
+    <a href="https://github.com/zack3812/todo/releases/latest"><strong>下载 Windows 版</strong></a>
     ·
     <a href="#从源码运行">从源码运行</a>
     ·
     <a href="#更新日志">更新日志</a>
     ·
-    <a href="https://github.com/xiaopu-ai/TO-DO-Panel/issues">反馈问题</a>
+    <a href="https://github.com/zack3812/todo/issues">反馈问题</a>
   </p>
   <p>
-    <img alt="Release" src="https://img.shields.io/github/v/release/xiaopu-ai/TO-DO-Panel?style=flat-square&color=7c8cff" />
+    <img alt="Release" src="https://img.shields.io/github/v/release/zack3812/todo?style=flat-square&color=7c8cff" />
     <img alt="macOS 13+ Apple Silicon" src="https://img.shields.io/badge/macOS-13%2B%20Apple%20Silicon-111318?style=flat-square&logo=apple" />
     <img alt="Windows 10/11 x64" src="https://img.shields.io/badge/Windows-10%2F11%20x64-0078D4?style=flat-square" />
     <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-35c58b?style=flat-square" />
@@ -53,16 +53,16 @@ TO-DO Panel 是一个常驻 macOS / Windows 屏幕顶部的本地工作台。Mac
 
 ## 下载与安装
 
-> 当前稳定版本：**1.1.2** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
+> 当前稳定版本：**1.2.0** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
 
 | 平台 | 在上方 GitHub Releases 下载对应安装包 |
 | --- | --- |
-| Mac | [TO-DO-Panel-1.1.2-arm64.dmg](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-arm64.dmg) |
-| Windows | [TO-DO-Panel-1.1.2-windows-x64-setup.exe](https://github.com/xiaopu-ai/TO-DO-Panel/releases/download/v1.1.2/TO-DO-Panel-1.1.2-windows-x64-setup.exe) |
+| Mac | [TO-DO-Panel-1.2.0-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.2.0/TO-DO-Panel-1.2.0-arm64.dmg) |
+| Windows | [TO-DO-Panel-1.2.0-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.2.0/TO-DO-Panel-1.2.0-windows-x64-setup.exe) |
 
 ### macOS
 
-1. 前往 [GitHub Releases](https://github.com/xiaopu-ai/TO-DO-Panel/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
+1. 前往 [GitHub Releases](https://github.com/zack3812/todo/releases/latest) 下载 `TO-DO-Panel-*-arm64.dmg`。
 2. 打开 DMG，将 `TO-DO Panel.app` 拖入「应用程序」。
 3. 首次启动若被 macOS 拦截，前往「系统设置 → 隐私与安全性」，点击「仍要打开」。
 4. 再次启动，根据需要授予辅助功能、屏幕录制、麦克风或摄像头权限。
@@ -81,7 +81,7 @@ Windows 版在 GitHub Windows runner 上自动验证安装、启动、数据保�
 
 ## 更新日志
 
-当前稳定版本为 **v1.1.2**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+当前稳定版本为 **v1.2.0**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
 
 完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 
@@ -117,7 +117,7 @@ Windows 安装后的两个脚本位于安装目录的 `resources/app/scripts/` �
 桌面端要求 Node.js 22.12.0+：
 
 ```bash
-git clone https://github.com/xiaopu-ai/TO-DO-Panel.git
+git clone https://github.com/zack3812/todo.git
 cd TO-DO-Panel
 npm install
 npm test

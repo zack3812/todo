@@ -582,6 +582,49 @@ async function controlSodaMusic(action, dependencies = {}, currentPlaying = fals
   return { ok: true, running: true, playing, bootstrapped };
 }
 
+
+// —— 自动更新（GitHub Release 检测）——
+function parseSemver(text) {
+  const match = String(text || '').trim().match(/^v?(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return null;
+  return { major: Number(match[1]), minor: Number(match[2]), patch: Number(match[3]) };
+}
+
+function isNewerVersion(latest, current) {
+  const l = parseSemver(latest);
+  const c = parseSemver(current);
+  if (!l || !c) return false;
+  if (l.major !== c.major) return l.major > c.major;
+  if (l.minor !== c.minor) return l.minor > c.minor;
+  return l.patch > c.patch;
+}
+
+async function fetchLatestRelease({ fetchImpl = globalThis.fetch, repo = 'zack3812/todo', token = '', timeoutMs = 8000 } = {}) {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetchImpl('https://api.github.com/repos/' + repo + '/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'TO-DO-Panel', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!response.ok) return { ok: false, error: 'http_' + response.status };
+    const data = await response.json();
+    const tag = String(data.tag_name || '').trim();
+    const latest = tag.replace(/^v/, '');
+    if (!latest) return { ok: false, error: 'no_tag' };
+    return {
+      ok: true,
+      latest,
+      url: String(data.html_url || 'https://github.com/' + repo + '/releases/latest'),
+      name: String(data.name || tag),
+    };
+  } catch (error) {
+    return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 module.exports = {
   isPrivateAddress,
   decodeHtmlEntities,
@@ -613,4 +656,7 @@ module.exports = {
   updateDefaultTabPreference,
   sodaShortcutSpec,
   controlSodaMusic,
+  parseSemver,
+  isNewerVersion,
+  fetchLatestRelease,
 };

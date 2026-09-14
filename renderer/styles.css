@@ -2628,6 +2628,7 @@ body {
 
 /* ============ Mac Bento · premium surface system ============ */
 :root {
+  color-scheme: dark; /* 原生控件（select 下拉、日期选择器等）统一深色渲染，避免白底弹层 */
   --bg-base: #050506;
   --surface-1: rgba(24, 24, 27, 0.88);
   --surface-2: rgba(39, 39, 43, 0.72);
@@ -3315,7 +3316,7 @@ body {
 .home-music[data-widget-size='small'] .music-controls button:not(.music-play) { display: none; }
 
 /* ============ 面板内截止时间选择器与单行待办 ============ */
-.todo-item { display: grid; grid-template-columns: 25px minmax(0, 1fr) 22px; align-items: center; gap: 7px; }
+.todo-item { display: grid; grid-template-columns: 25px minmax(0, auto) minmax(0, 1fr) 22px; align-items: center; gap: 7px; }
 .todo-copy {
   min-width: 0;
   display: flex;
@@ -3395,7 +3396,7 @@ body {
 .todo-calendar-grid button.selected { background: #edf1f7; color: #111318; box-shadow: 0 7px 18px rgba(0,0,0,.28); }
 .todo-time-row { justify-content: flex-end; gap: 7px; margin-top: 12px; }
 .todo-time-row > span { margin-right: auto; color: var(--text-3); font-size: 10px; }
-.todo-time-row select { width: 66px; height: 34px; padding: 0 8px; border: 0; border-radius: 11px; outline: none; background: rgba(255,255,255,.06); color: var(--text-1); font: 11px var(--font-mono); }
+.todo-time-row select { width: 66px; height: 34px; padding: 0 8px; border: 0; border-radius: 11px; outline: none; background: rgba(255,255,255,.06); color: var(--text-1); font: 13px var(--font); }
 #todo-editor-error { min-height: 16px; margin: 8px 0 0; color: #ff817b; font-size: 9px; }
 .todo-editor-card footer { justify-content: flex-end; gap: 7px; }
 
@@ -3573,8 +3574,8 @@ body {
   display: grid;
   gap: var(--s-3);
 }
-.settings-column-primary { grid-template-rows: 154px minmax(0, 1fr); }
-.settings-column-secondary { grid-template-rows: 190px minmax(0, 1fr); }
+.settings-column-primary { grid-template-rows: auto; align-content: start; overflow-y: auto; }
+.settings-column-secondary { grid-template-rows: auto; align-content: start; overflow-y: auto; }
 .settings-card {
   min-width: 0;
   min-height: 0;
@@ -3656,6 +3657,7 @@ body {
 .settings-device-actions { flex: 0 0 auto; display: flex; gap: 6px; }
 .settings-auto-launch-row { position: relative; cursor: pointer; border-bottom: 0; }
 .settings-inline-note { min-height: 14px; margin-top: auto !important; padding-top: 6px; color: #65d9a1 !important; }
+.settings-update-card { min-height: 118px; display: flex; flex-direction: column; }
 .settings-inline-note.error { color: #ff746d !important; }
 
 @media (max-width: 900px) {
@@ -3743,7 +3745,7 @@ body {
   outline: none;
   background: rgba(255,255,255,.065);
   color: var(--text-1);
-  font: 10px var(--font);
+  font: 13px var(--font);
 }
 .todo-inline-name { flex: 1 1 80px; padding: 0 9px; box-shadow: inset 0 0 0 1px rgba(130,169,255,.45); }
 .todo-inline-editor .todo-battery { flex: 0 0 68px; }
@@ -4093,7 +4095,7 @@ body {
 .todo-date-popover .todo-calendar-week { margin-bottom: 2px; font-size: 8px; }
 .todo-date-popover .todo-time-row { margin-top: 6px; }
 .todo-date-popover .todo-time-row > span { display: none; }
-.todo-date-popover .todo-time-row select { width: 58px; height: 29px; border-radius: 9px; font-size: 10px; }
+.todo-date-popover .todo-time-row select { width: 58px; height: 29px; border-radius: 9px; font: 13px var(--font); }
 .todo-date-popover #todo-editor-error { min-height: 0; margin: 5px 0 0; font-size: 8px; }
 
 /* ============ Vue Bits inspired motion + radius audit ============ */
@@ -4856,7 +4858,7 @@ body {
   width: 100%;
   box-sizing: border-box;
   margin: 1px 0;
-  grid-template-columns: 25px minmax(0, 1fr) 30px;
+  grid-template-columns: 25px minmax(0, auto) minmax(0, 1fr) 30px;
   padding-left: 11px;
   transform: translateX(calc(var(--line-effect) * 3px));
 }
@@ -5638,3 +5640,272 @@ body {
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
+
+/* ============ 待办右侧元信息：更大更清晰 ============ */
+.todo-copy .todo-text { font-size: 13px; }
+.todo-ddl { font-size: 11px; color: var(--text-2); }
+.todo-copy .todo-battery { width: 62px; height: 15px; }
+.todo-battery b { font: 600 10px/15px var(--font-mono); color: rgba(255,255,255,.92); }
+.todo-item .delete { font-size: 21px; color: rgba(255,255,255,.78); opacity: .8; }
+
+/* ============ 待办项目标签 ============ */
+.todo-project-chip {
+  flex-shrink: 0;
+  max-width: 96px;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--project-color, #8a8a8a) 55%, transparent);
+  color: var(--project-color, var(--text-2));
+  background: color-mix(in srgb, var(--project-color, #8a8a8a) 14%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
+}
+.todo-project-chip:hover { filter: brightness(1.15); }
+.todo-project-chip.todo-project-add {
+  border-style: dashed;
+  border-color: var(--text-4);
+  color: var(--text-4);
+  background: transparent;
+  font-size: 12px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.todo-project-input {
+  flex-shrink: 0;
+  width: 88px;
+  font-size: 11px;
+  font-family: inherit;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-blue);
+  background: var(--surface-1);
+  color: var(--text-1);
+  outline: none;
+}
+
+/* ============ 待办项目分组树 ============ */
+.todo-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 7px 0 3px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  background: color-mix(in srgb, var(--project-color, #888) 10%, transparent);
+}
+.todo-group-head:first-child { margin-top: 0; }
+.todo-group-fold {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  width: 14px;
+  text-align: center;
+  line-height: 1;
+}
+.todo-group-name { font-weight: 600; color: var(--text-2); }
+.todo-group-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--text-4);
+}
+.todo-group-head.drop-project {
+  outline: 1px solid var(--project-color, var(--accent-blue));
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--project-color, var(--accent-blue)) 30%, transparent);
+}
+.todo-group-toggle.active {
+  background: var(--item-hover);
+  color: var(--text-1);
+}
+
+/* ============ 待办行内字体统一（13px） ============ */
+.todo-copy .todo-text { font-size: 13px; }
+.todo-ddl { font-size: 13px; color: var(--text-2); }
+.todo-battery b { font: 600 13px/15px var(--font-mono); color: rgba(255,255,255,.92); }
+.todo-project-chip { font-size: 13px; line-height: 1.5; }
+.todo-project-chip.todo-project-add { font-size: 13px; }
+.todo-project-input { font-size: 13px; }
+
+/* ============ 字体统一：电池/日期与名称同字体 ============ */
+.todo-battery b { font: 600 13px/15px var(--font); }
+.todo-ddl { font-family: var(--font); }
+/* ============ 项目标签更醒目：白字 + 深色实底，紧急程度一目了然 ============ */
+.todo-project-chip {
+  font-weight: 600;
+  color: #fff;
+  border-color: transparent;
+  background: color-mix(in srgb, var(--project-color, #8a8a8a) 62%, #0d0e11 38%);
+}
+.todo-project-chip.todo-project-add {
+  color: var(--text-4);
+  background: transparent;
+  border: 1px dashed var(--text-4);
+  font-weight: 400;
+}
+
+
+/* ============ 选中态配色修复：深色主题下统一品牌蓝，去掉纯白背景 ============ */
+/* 顶栏 tab 选中胶囊：白渐变 -> 品牌蓝玻璃 */
+.tab-indicator {
+  background: linear-gradient(180deg, rgba(67,140,255,.5), rgba(67,140,255,.32));
+  border: 1px solid rgba(115,166,255,.4);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 4px 14px rgba(0,0,0,.3);
+}
+.tab.active { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+/* 日期选择器选中日：纯白 -> 品牌蓝实底白字 */
+.todo-calendar-grid button.selected {
+  background: var(--accent-blue);
+  color: #fff;
+  box-shadow: 0 7px 18px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.22);
+  font-weight: 600;
+}
+/* 日期选择器字体统一并放大：日期格、星期表头、时/分下拉与全局 --font 一致 */
+.todo-calendar-week { font: 12px var(--font); }
+.todo-calendar-grid button { font: 13px var(--font); }
+.todo-time-row select { font: 13px var(--font); }
+.todo-time-row > span { font-size: 12px; }
+/* 功能/模块开关开启态：加深蓝色底，状态更明显 */
+.settings-feature-grid input:checked + i,
+.settings-auto-launch-row input:checked + i,
+.settings-home-module-grid input:checked + i {
+  background: rgba(67,140,255,.62);
+  box-shadow: inset 0 0 0 1px rgba(115,166,255,.55), 0 0 16px rgba(67,140,255,.18);
+}
+
+/* ============ 自绘下拉（替代原生 select 白底弹层）============ */
+.custom-select { position: relative; }
+.custom-select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-width: 92px; height: 34px; padding: 0 12px;
+  border: 1px solid rgba(255,255,255,.08); border-radius: 11px;
+  background: rgba(255,255,255,.06); color: var(--text-1);
+  font: 13px var(--font); cursor: pointer;
+  transition: background var(--d-fast) var(--ease);
+}
+.custom-select-trigger::after {
+  content: ''; width: 0; height: 0; flex: 0 0 auto;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-3);
+}
+.custom-select-trigger:hover { background: rgba(255,255,255,.1); }
+.custom-select-trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.custom-select-menu {
+  position: absolute; top: calc(100% + 5px); left: 0; right: 0;
+  max-height: 214px; overflow-y: auto;
+  padding: 5px; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 13px; background: #18181d;
+  box-shadow: 0 18px 44px rgba(0,0,0,.55);
+  z-index: 300;
+}
+.custom-select-menu[hidden] { display: none; }
+.custom-select-option {
+  display: block; width: 100%; padding: 9px 11px;
+  border: 0; border-radius: 9px; background: transparent;
+  color: var(--text-2); font: 13px var(--font); text-align: left; cursor: pointer;
+}
+.custom-select-option:hover { background: rgba(255,255,255,.08); color: var(--text-1); }
+.custom-select-option.selected { background: var(--accent-blue); color: #fff; }
+.settings-default-tab-select { width: 148px; }
+.settings-default-tab-select .custom-select-trigger { min-width: 148px; }
+.custom-select-time .custom-select-trigger { width: 84px; min-width: 84px; height: 46px; font-size: 20px; justify-content: center; }
+.custom-select-time .custom-select-trigger::after { display: none; }
+.custom-select-time .custom-select-menu { left: auto; right: 0; width: 108px; }
+.custom-select-time .custom-select-option { font-size: 18px; text-align: center; padding: 12px 8px; }
+
+/* ============ 日期时间选择：居中弹出 + 过渡（覆盖旧的锚定小浮层）============ */
+.todo-date-popover {
+  position: fixed; inset: 0; z-index: 400;
+  display: flex; align-items: center; justify-content: center;
+  width: auto; padding: 24px;
+  background: rgba(0,0,0,.5);
+  filter: none;
+  animation: date-backdrop-in .16s ease both;
+}
+.todo-date-popover[hidden] { display: none; }
+.todo-date-popover .todo-editor-card {
+  width: min(440px, calc(100vw - 48px));
+  padding: 24px;
+  border-radius: 26px;
+  background: linear-gradient(155deg, rgba(42,42,48,.99), rgba(19,19,23,.99));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 34px 90px rgba(0,0,0,.6);
+  animation: date-card-in .22s cubic-bezier(.2,.85,.35,1.08) both;
+}
+.todo-date-popover .todo-editor-card::after { display: none; }
+.todo-date-popover .todo-calendar-head span { font: 18px var(--font); }
+.todo-date-popover .todo-calendar-head button { width: 36px; height: 36px; border-radius: 12px; font-size: 17px; }
+.todo-date-popover .todo-calendar-week { margin-bottom: 8px; font-size: 15px; }
+.todo-date-popover .todo-calendar-grid { min-height: 240px; }
+.todo-date-popover .todo-calendar-grid button { height: 40px; border-radius: 11px; font: 18px var(--font); }
+.todo-date-popover .todo-time-row { margin-top: 14px; }
+.todo-date-popover .todo-time-row > span { display: inline; color: var(--text-3); font-size: 15px; }
+.todo-date-popover .todo-time-row b { color: var(--text-3); font-size: 20px; }
+.todo-date-popover #todo-editor-error { font-size: 14px; }
+@keyframes date-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes date-card-in {
+  from { opacity: 0; transform: scale(.94) translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todo-date-popover,
+  .todo-date-popover .todo-editor-card { animation: none; }
+}
+
+/* 覆盖象限内锚定变体：日期选择统一居中大弹层 */
+.quadrant > .todo-date-popover { width: auto; padding: 24px; }
+.quadrant > .todo-date-popover .todo-editor-card { width: min(440px, calc(100vw - 48px)); padding: 24px; border-radius: 26px; }
+.quadrant > .todo-date-popover .todo-calendar-head { grid-template-columns: 36px 1fr 36px; gap: 4px; }
+.quadrant > .todo-date-popover .todo-calendar-head button { width: 36px; height: 36px; border-radius: 12px; font-size: 17px; }
+.quadrant > .todo-date-popover .todo-calendar-week { margin-bottom: 8px; font-size: 15px; }
+.quadrant > .todo-date-popover .todo-calendar-grid { min-height: 240px; gap: 5px; }
+.quadrant > .todo-date-popover .todo-calendar-grid button { height: 40px; border-radius: 11px; font: 18px var(--font); }
+.quadrant > .todo-date-popover .todo-time-row { margin-top: 14px; }
+.quadrant > .todo-date-popover .todo-time-row select { width: 78px; height: 40px; font: 17px var(--font); }
+
+/* 日期弹层：年月标题放大 + 时/分菜单向上展开 + 确认取消按钮 */
+.todo-date-popover .todo-calendar-head span { font: 20px var(--font); }
+.quadrant > .todo-date-popover .todo-calendar-head span { font: 20px var(--font); }
+.custom-select-time .custom-select-menu { top: auto; bottom: calc(100% + 6px); max-height: 240px; }
+.todo-editor-actions {
+  display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;
+}
+.todo-editor-actions .workspace-button { min-width: 72px; height: 36px; font-size: 15px; }
+.quadrant > .todo-date-popover .todo-editor-actions { margin-top: 16px; }
+
+#todo-editor-month { font-size: 20px; font-family: var(--font); }
+
+/* ============ 全局字号放大 ============ */
+.tab { font-size: 14px; }
+.todo-copy .todo-text { font-size: 15px; }
+.add-row input { font-size: 14px; }
+.tile-label { font-size: 12px; }
+.quadrant-header .todo-category-name { font-size: 14px; }
+/* 设置页 */
+.settings-card-heading > small { font-size: 12px; }
+.settings-card p { font-size: 12px; }
+.settings-status-list span { font-size: 13px; }
+.settings-feature-grid b { font-size: 14px; }
+.settings-feature-grid small { font-size: 11px; }
+.settings-device-row span { font-size: 12px; }
+.settings-device-row strong { font-size: 13px; }
+.settings-device-row button { font-size: 12px; }
+.settings-inline-note { font-size: 12px; }
+/* 自绘下拉选项字号 */
+.custom-select-option { font-size: 14px; }
+.custom-select-trigger { font-size: 14px; }
+
+/* 失焦时折叠刘海透明，避免遮挡其他窗口内容 */
+#app.collapsed.inactive .notch { background: transparent; }
+#app.collapsed.inactive .notch-dot { opacity: 0.5; }
+/* 设置卡片允许下拉菜单溢出（原 overflow:hidden 会裁掉自绘下拉） */
+.settings-card { overflow: hidden; }
+.settings-device-card { overflow: visible; }
