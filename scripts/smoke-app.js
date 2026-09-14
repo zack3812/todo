@@ -92,7 +92,7 @@ async function main() {
   assert.equal(await evaluate('window.notchAPI.listWindows().then(r => r.error)'), 'unsupported');
   await evaluate('document.getElementById("notch").click()');
   await until(() => evaluate('document.getElementById("app").classList.contains("expanded")'), 'expand');
-  assert.equal(await evaluate('window.notchAPI.getMetrics().then(m => m.stripHeight)'), 38);
+  assert.equal(await evaluate('window.notchAPI.getMetrics().then(m => m.stripHeight)'), 19);
   assert.deepEqual(await evaluate('window.notchAPI.pasteClipboard({type:"text", text:"Windows smoke copy"})'), { ok: true, pasted: false });
   assert.equal(await evaluate('window.notchAPI.setAutoLaunch(true).then(r => r.ok)'), true);
   assert.equal(await evaluate('window.notchAPI.getAppSettings().then(r => r.autoLaunch)'), true);

@@ -175,7 +175,7 @@ function createNotchTrayIcon() {
 
 const COLLAPSED_WIDTH = 200;
 const COLLAPSED_MIN_HEIGHT = 38;
-// NOTCH_LIP（原 6px 唇边）已移除：折叠条高度现在恰好等于菜单栏高（≈物理刘海高），
+// NOTCH_LIP（原 6px 唇边）已移除：折叠条高度为菜单栏高的一半（用户要求减半），
 // 一个像素都不超出物理刘海。虽然折叠条完全在菜单栏拦截带内，
 // 但本项目窗口使用 setAlwaysOnTop(true,'screen-saver') 级别，
 // 实测菜单栏不拦截该级别窗口的点击，折叠条仍可点击展开。
@@ -341,12 +341,12 @@ function getMenuBarHeight(display) {
 }
 
 function getCollapsedHeight(display) {
-  if (process.platform === 'win32') return COLLAPSED_MIN_HEIGHT;
+  if (process.platform === 'win32') return COLLAPSED_MIN_HEIGHT / 2;
   const mb = getMenuBarHeight(display);
   // 折叠条高度恰好等于菜单栏带（≈物理刘海高），一个像素都不超出物理刘海。
   // 无刘海的外接屏 menuBarHeight 仍是真实菜单栏高，能正常露头；
   // 异常取到 0 才回退兜底（COLLAPSED_MIN_HEIGHT = 38px）。
-  return mb > 0 ? mb : COLLAPSED_MIN_HEIGHT;
+  return Math.round((mb > 0 ? mb : COLLAPSED_MIN_HEIGHT) / 2);
 }
 
 // 展开尺寸按当前 Tab 取值；宽度超出屏幕时 clamp 到工作区内。

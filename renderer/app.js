@@ -1,6 +1,10 @@
 const STORAGE_KEY = 'notch-todo-data';
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const TODO_CATEGORY_KEY = 'notch-todo-category-names-v1';
+// 用户手动拖放后每列的显示顺序（id 数组）。独立于 notch-todo-data 存储，
+// 只记录「用户拖过」的列；未拖过的列仍按 deadline 排序。
+const TODO_ORDER_KEY = 'notch-todo-order-v1';
+const TODO_HISTORY_KEY = 'notch-todo-history-v1';
 const TODO_CATEGORY_DEFAULTS = {
   P0: '课程',
   P1: '自媒体&写作',
@@ -158,6 +162,7 @@ function normalizeTodoItems(value) {
           ? new Date(Date.parse(String(item.deadline))).toISOString()
           : '',
         remindedAt: Math.max(0, Number(item.remindedAt) || 0),
+        completedAt: typeof item.completedAt === 'string' && item.completedAt ? item.completedAt : '',
       };
     })
     .filter(Boolean);
@@ -175,7 +180,113 @@ function saveData(data) {
   }
 }
 
+function loadTodoOrder() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODO_ORDER_KEY) || 'null');
+    if (!parsed || typeof parsed !== 'object') return {};
+    const result = {};
+    for (const priority of PRIORITIES) {
+      const ids = Array.isArray(parsed[priority]) ? parsed[priority] : [];
+      const valid = new Set((data[priority] || []).map((item) => item.id));
+      result[priority] = ids.filter((id) => typeof id === 'string' && valid.has(id));
+    }
+    return result;
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveTodoOrder() {
+  try {
+    localStorage.setItem(TODO_ORDER_KEY, JSON.stringify(todoOrder));
+  } catch (error) {
+    // ignore quota errors
+  }
+}
+
+// 显示顺序：用户手动拖过（todoOrder 非空）按手动顺序，新加的项按默认排序补在末尾；
+// 从未拖过的列保持 deadline 排序。
+function todoDisplayOrder(priority) {
+  const sorted = window.NotchDomain.sortTodosForDisplay(data[priority] || []);
+  const manual = todoOrder[priority];
+  if (!manual || !manual.length) return sorted;
+  const byId = new Map(sorted.map((item) => [item.id, item]));
+  const ordered = [];
+  const seen = new Set();
+  for (const id of manual) {
+    const item = byId.get(id);
+    if (item && !seen.has(id)) {
+      ordered.push(item);
+      seen.add(id);
+    }
+  }
+  for (const item of sorted) {
+    if (!seen.has(item.id)) {
+      ordered.push(item);
+      seen.add(item.id);
+    }
+  }
+  return ordered;
+}
+
 let data = loadData();
+
+// ============ 待办完成历史存档（notch-todo-history-v1） ============
+function loadTodoHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODO_HISTORY_KEY) || 'null');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((h) => h && typeof h.text === 'string').map((h) => ({
+      id: typeof h.id === 'string' && h.id ? h.id : generateId(),
+      text: h.text,
+      priority: PRIORITIES.includes(h.priority) ? h.priority : 'P3',
+      createdAt: Number.isFinite(h.createdAt) ? h.createdAt : Date.now(),
+      completedAt: Number.isFinite(h.completedAt) ? h.completedAt : Date.now(),
+      deadline: typeof h.deadline === 'string' ? h.deadline : '',
+    }));
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveTodoHistory() {
+  try {
+    localStorage.setItem(TODO_HISTORY_KEY, JSON.stringify(todoHistory));
+  } catch (error) {
+    // ignore quota errors
+  }
+}
+
+// 旧版本里已完成项留在列表（done: true），首次升级时统一迁入历史存档。
+function migrateDoneTodos() {
+  let migrated = false;
+  PRIORITIES.forEach((priority) => {
+    const list = data[priority] || [];
+    list.filter((item) => item.done).forEach((item) => {
+      todoHistory.unshift({
+        id: item.id,
+        text: item.text,
+        priority,
+        createdAt: item.createdAt || Date.now(),
+        completedAt: item.completedAt || Date.now(),
+        deadline: item.deadline || '',
+      });
+    });
+    if (list.some((item) => item.done)) {
+      data[priority] = list.filter((item) => !item.done);
+      migrated = true;
+    }
+  });
+  if (migrated) {
+    saveData(data);
+    saveTodoHistory();
+  }
+}
+
+let todoHistory = loadTodoHistory();
+let todoView = 'active';
+migrateDoneTodos();
+let todoOrder = loadTodoOrder();
 let todoCategoryNames = loadTodoCategoryNames();
 const todoSelections = Object.fromEntries(PRIORITIES.map((priority) => [priority, new Set()]));
 const todoSelectionAnchors = Object.fromEntries(PRIORITIES.map((priority) => [priority, null]));
@@ -314,7 +425,7 @@ function animateTodoOrder(priority, previousPositions) {
 function renderList(priority, options = {}) {
   const list = document.querySelector(`.todo-list[data-priority="${priority}"]`);
   if (!list) return;
-  const items = window.NotchDomain.sortTodosForDisplay(data[priority] || []);
+  const items = todoDisplayOrder(priority);
   list.innerHTML = items.map((item) => todoItemHtml(priority, item)).join('');
   updateTodoBulkButton(priority);
   animateTodoOrder(priority, options.previousPositions);
@@ -408,17 +519,37 @@ function toggleTodo(priority, id) {
   const idx = list.findIndex((t) => t.id === id);
   if (idx === -1) return;
   const previousPositions = captureTodoPositions(priority);
-  const restoreFocus = document.activeElement?.closest('.todo-item')?.dataset.id === id;
-  list[idx].done = !list[idx].done;
-  const nowDone = list[idx].done;
-  saveData(data);
-  renderList(priority, {
-    previousPositions,
-    focusId: restoreFocus ? id : '',
-    focusAction: 'toggle',
+  const [item] = list.splice(idx, 1);
+  const completedAt = Date.now();
+  todoHistory.unshift({
+    id: item.id,
+    text: item.text,
+    priority,
+    createdAt: item.createdAt || completedAt,
+    completedAt,
+    deadline: item.deadline || '',
   });
+  saveData(data);
+  saveTodoHistory();
+  renderList(priority, { previousPositions });
   updateCount(priority);
-  if (nowDone) requestAnimationFrame(() => flashCheckboxPop(priority, id)); // 勾选弹一下
+  updateTodoHistoryUI();
+  requestAnimationFrame(() => flashCheckboxPop(priority, id)); // 勾选弹一下
+  showStatusToast('已完成，已存入历史', {
+    actionLabel: '撤销',
+    duration: 5000,
+    onAction: () => {
+      const hi = todoHistory.findIndex((h) => h.id === item.id);
+      if (hi !== -1) todoHistory.splice(hi, 1);
+      list.push({ ...item, done: false });
+      saveData(data);
+      saveTodoHistory();
+      renderList(priority);
+      updateCount(priority);
+      updateTodoHistoryUI();
+      showStatusToast('已撤销完成');
+    },
+  });
 }
 
 function deleteTodo(priority, id) {
@@ -1223,7 +1354,7 @@ PRIORITIES.forEach((priority) => {
     if (e.shiftKey) {
       e.preventDefault();
       const result = window.NotchDomain.updateRangeSelection(
-        window.NotchDomain.sortTodosForDisplay(data[priority] || []).map((todo) => todo.id),
+        todoDisplayOrder(priority).map((todo) => todo.id),
         [...todoSelections[priority]],
         id,
         todoSelectionAnchors[priority],
@@ -1271,6 +1402,172 @@ PRIORITIES.forEach((priority) => {
     }
   });
 });
+
+// ============ 待办长按拖拽：列内排序 + 跨列搬运 ============
+// 与链接拖拽同一套指针事件 + 长按门槛：短按保留「点击行主体 = 编辑」的语义，
+// 按住行主体 340ms 进入拖拽，拖拽结束补发的 click 会被拦掉，不会误开编辑。
+const TODO_DRAG_HOLD_MS = 340;
+const TODO_DRAG_MOVE_CANCEL = 8;
+let todoDrag = null;
+let suppressTodoClick = false;
+
+function clearTodoDropMarks() {
+  document.querySelectorAll('.todo-item.drop-before, .todo-item.drop-after').forEach((item) => {
+    item.classList.remove('drop-before', 'drop-after');
+  });
+}
+
+function cancelTodoDrag() {
+  if (!todoDrag) return;
+  clearTimeout(todoDrag.holdTimer);
+  if (todoDrag.active) {
+    todoDrag.row.classList.remove('dragging');
+    todoDrag.row.closest('.todo-list')?.classList.remove('todo-dragging');
+    clearTodoDropMarks();
+  }
+  try { todoDrag.row.releasePointerCapture(todoDrag.pointerId); } catch (error) {}
+  todoDrag.row.classList.remove('grab-pending');
+  todoDrag = null;
+}
+
+function updateTodoDropTarget(clientX, clientY) {
+  clearTodoDropMarks();
+  todoDrag.target = null;
+  const under = document.elementFromPoint(clientX, clientY);
+  if (!under) return;
+  const overItem = under.closest('.todo-item[data-id]');
+  // 压在被拖那一行自己身上 = 放回原处，目标留空，松手什么都不做。
+  if (overItem === todoDrag.row) return;
+  if (overItem) {
+    const rect = overItem.getBoundingClientRect();
+    const after = clientY > rect.top + rect.height / 2;
+    overItem.classList.add(after ? 'drop-after' : 'drop-before');
+    const rows = Array.from(overItem.parentElement.querySelectorAll('.todo-item[data-id]'));
+    todoDrag.target = {
+      priority: overItem.dataset.priority,
+      index: rows.indexOf(overItem) + (after ? 1 : 0),
+    };
+    return;
+  }
+  const overList = under.closest('.todo-list[data-priority]');
+  if (!overList) return;
+  todoDrag.target = {
+    priority: overList.dataset.priority,
+    index: overList.querySelectorAll('.todo-item[data-id]').length,
+  };
+}
+
+// 把拖拽目标换算成目标列的显示 id 序列，落盘到数据与手动顺序。
+function applyTodoMove(fromPriority, id, target) {
+  const toPriority = target.priority;
+  const fromList = data[fromPriority] || [];
+  const idx = fromList.findIndex((item) => item.id === id);
+  if (idx === -1) return false;
+  const item = fromList[idx];
+  const ids = todoDisplayOrder(toPriority).map((todo) => todo.id);
+  const prevIndex = ids.indexOf(id);
+  if (prevIndex !== -1) ids.splice(prevIndex, 1);
+  let targetIndex = target.index;
+  if (prevIndex !== -1 && prevIndex < targetIndex) targetIndex -= 1;
+  targetIndex = Math.max(0, Math.min(targetIndex, ids.length));
+  if (prevIndex !== -1 && targetIndex === prevIndex) return false;
+  ids.splice(targetIndex, 0, id);
+  fromList.splice(idx, 1);
+  if (fromPriority !== toPriority) {
+    (data[toPriority] || (data[toPriority] = [])).push(item);
+  }
+  todoOrder[toPriority] = ids;
+  if (fromPriority !== toPriority && todoOrder[fromPriority]) {
+    todoOrder[fromPriority] = todoOrder[fromPriority].filter((other) => other !== id);
+  }
+  saveData(data);
+  saveTodoOrder();
+  return true;
+}
+
+function captureTodoPositionsAcross(priorities) {
+  const positions = new Map();
+  for (const priority of new Set(priorities)) {
+    const list = document.querySelector(`.todo-list[data-priority="${priority}"]`);
+    if (!list) continue;
+    list.querySelectorAll('.todo-item[data-id]').forEach((el) => {
+      positions.set(el.dataset.id, el.getBoundingClientRect());
+    });
+  }
+  return positions;
+}
+
+document.querySelectorAll('.todo-list').forEach((list) => {
+  list.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || event.shiftKey) return;
+    const row = event.target.closest('.todo-item[data-id]');
+    // 勾选、删除、编辑态与多选行不参与拖拽；行主体（含文字/时间）可长按拖。
+    if (!row || event.target.closest('.checkbox, .delete, .todo-inline-editor')) return;
+    suppressTodoClick = false;
+    cancelTodoDrag();
+    todoDrag = {
+      row,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      target: null,
+      holdTimer: setTimeout(() => {
+        if (!todoDrag) return;
+        todoDrag.active = true;
+        row.classList.add('dragging');
+        row.classList.remove('grab-pending');
+        row.closest('.todo-list')?.classList.add('todo-dragging');
+        try { row.setPointerCapture(todoDrag.pointerId); } catch (error) {}
+        updateTodoDropTarget(todoDrag.startX, todoDrag.startY);
+      }, TODO_DRAG_HOLD_MS),
+    };
+    row.classList.add('grab-pending');
+  });
+
+  // 拖拽结束后浏览器仍会补一个 click，必须在捕获阶段拦掉，否则松手即打开编辑。
+  list.addEventListener('click', (event) => {
+    if (!suppressTodoClick) return;
+    suppressTodoClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  }, true);
+});
+
+document.addEventListener('pointermove', (event) => {
+  if (!todoDrag || event.pointerId !== todoDrag.pointerId) return;
+  if (!todoDrag.active) {
+    // 长按还没满就移动，说明用户在滚动或只是手抖，放弃这次拖拽。
+    const moved = Math.abs(event.clientX - todoDrag.startX) > TODO_DRAG_MOVE_CANCEL
+      || Math.abs(event.clientY - todoDrag.startY) > TODO_DRAG_MOVE_CANCEL;
+    if (moved) cancelTodoDrag();
+    return;
+  }
+  event.preventDefault();
+  updateTodoDropTarget(event.clientX, event.clientY);
+});
+
+document.addEventListener('pointerup', (event) => {
+  if (!todoDrag || event.pointerId !== todoDrag.pointerId) return;
+  const wasActive = todoDrag.active;
+  const target = todoDrag.target;
+  const id = todoDrag.row.dataset.id;
+  const fromPriority = todoDrag.row.dataset.priority;
+  const affected = [...new Set([fromPriority, target?.priority].filter(Boolean))];
+  const previousPositions = wasActive ? captureTodoPositionsAcross(affected) : new Map();
+  cancelTodoDrag();
+  if (!wasActive) return;
+  suppressTodoClick = true;
+  if (!target) return;
+  if (!applyTodoMove(fromPriority, id, target)) return;
+  affected.forEach((priority) => {
+    renderList(priority, { previousPositions });
+    updateCount(priority);
+  });
+  showStatusToast(fromPriority === target.priority ? '待办顺序已更新' : '待办已移动');
+});
+
+document.addEventListener('pointercancel', () => cancelTodoDrag());
 
 document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((button) => {
   button.addEventListener('click', () => {
@@ -3729,3 +4026,163 @@ renderAll();
 renderClipList(); // 首屏确保 clip-list DOM 就绪时渲染一次（幂等）
 renderClipFavs(); // 首屏渲染收藏剪贴块
 initTab();
+
+
+// ============ 待办历史：存档查看与完成跨度甘特图 ============
+function formatHistoryDate(ts) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(ts));
+}
+function formatHistorySpan(start, end) {
+  const ms = Math.max(0, end - start);
+  const hours = Math.round(ms / 3600000);
+  if (hours < 1) return '<1 小时';
+  if (hours < 24) return `${hours} 小时`;
+  const days = Math.floor(hours / 24);
+  const rest = hours % 24;
+  return rest ? `${days} 天 ${rest} 小时` : `${days} 天`;
+}
+
+function historyRowHtml(item) {
+  const name = todoCategoryNames[item.priority] || item.priority;
+  return `<li class="history-item" data-id="${escapeHtml(item.id)}">
+    <span class="dot dot-${item.priority}" title="${escapeHtml(name)}"></span>
+    <span class="history-text" title="${escapeHtml(item.text)}">${escapeHtml(item.text)}</span>
+    <span class="history-meta">${formatHistoryDate(item.createdAt)} → ${formatHistoryDate(item.completedAt)}<em>${formatHistorySpan(item.createdAt, item.completedAt)}</em></span>
+    <button type="button" class="history-restore" data-action="restore" title="恢复为未完成" aria-label="恢复：${escapeHtml(item.text)}">↩</button>
+    <button type="button" class="history-delete" data-action="delete" title="永久删除" aria-label="删除：${escapeHtml(item.text)}">×</button>
+  </li>`;
+}
+
+function renderTodoGantt() {
+  const wrap = document.getElementById('todo-gantt-wrap');
+  const gantt = document.getElementById('todo-gantt');
+  if (!wrap || !gantt) return;
+  const items = todoHistory.filter(
+    (h) => Number.isFinite(h.createdAt) && Number.isFinite(h.completedAt) && h.completedAt >= h.createdAt
+  );
+  if (!items.length) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  const now = Date.now();
+  let min = Math.min(...items.map((h) => h.createdAt));
+  const max = Math.max(now, ...items.map((h) => h.completedAt));
+  const MIN_SPAN = 7 * 24 * 3600 * 1000;
+  if (max - min < MIN_SPAN) min = max - MIN_SPAN;
+  const span = Math.max(1, max - min);
+  const ordered = [...items].sort((a, b) => b.completedAt - a.completedAt);
+  const days = span / 86400000;
+  const stepDays = days > 120 ? 30 : days > 30 ? 7 : 1;
+  const ticks = [];
+  const d0 = new Date(min);
+  const tickStart = new Date(d0.getFullYear(), d0.getMonth(), d0.getDate());
+  for (let ts = tickStart.getTime(); ts <= max; ts += stepDays * 86400000) ticks.push(ts);
+  const axis = ticks.map((ts) => `<i style="left:${((ts - min) / span) * 100}%">${formatHistoryDate(ts)}</i>`).join('');
+  const rows = ordered.map((h) => {
+    const left = Math.max(0, Math.min(100, ((h.createdAt - min) / span) * 100));
+    const width = Math.max(0.5, Math.min(100 - left, ((h.completedAt - h.createdAt) / span) * 100));
+    return `<div class="gantt-row" data-priority="${h.priority}">
+      <span class="gantt-label" title="${escapeHtml(h.text)}">${escapeHtml(h.text)}</span>
+      <span class="gantt-track"><i class="gantt-bar" style="left:${left}%;width:${width}%"></i></span>
+      <span class="gantt-span">${formatHistorySpan(h.createdAt, h.completedAt)}</span>
+    </div>`;
+  }).join('');
+  gantt.innerHTML = `<div class="gantt-axis"><span></span><span class="axis-track">${axis}</span><span></span></div>${rows}`;
+}
+
+function updateTodoHistoryUI() {
+  const countEl = document.getElementById('todo-history-count');
+  if (countEl) countEl.textContent = String(todoHistory.length);
+  const clearBtn = document.getElementById('todo-history-clear');
+  if (clearBtn) clearBtn.hidden = todoHistory.length === 0;
+}
+
+function renderTodoHistory() {
+  const list = document.getElementById('todo-history-list');
+  const empty = document.getElementById('todo-history-empty');
+  if (!list || !empty) return;
+  updateTodoHistoryUI();
+  renderTodoGantt();
+  if (!todoHistory.length) {
+    list.innerHTML = '';
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  list.innerHTML = todoHistory.map(historyRowHtml).join('');
+}
+
+function setTodoView(view) {
+  if (view !== 'active' && view !== 'history') return;
+  todoView = view;
+  const activeView = document.getElementById('todo-active-view');
+  const historyView = document.getElementById('todo-history-view');
+  document.querySelectorAll('.todo-view-tab').forEach((btn) => {
+    const active = btn.dataset.todoView === view;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-selected', String(active));
+  });
+  if (view === 'history') {
+    if (activeView) activeView.hidden = true;
+    if (historyView) {
+      historyView.hidden = false;
+      renderTodoHistory();
+    }
+  } else {
+    if (historyView) historyView.hidden = true;
+    if (activeView) activeView.hidden = false;
+  }
+}
+
+function restoreTodoFromHistory(id) {
+  const index = todoHistory.findIndex((h) => h.id === id);
+  if (index === -1) return;
+  const [h] = todoHistory.splice(index, 1);
+  (data[h.priority] || (data[h.priority] = [])).push({
+    id: h.id,
+    text: h.text,
+    done: false,
+    createdAt: h.createdAt,
+    deadline: h.deadline || '',
+    remindedAt: 0,
+  });
+  saveData(data);
+  saveTodoHistory();
+  renderList(h.priority);
+  updateCount(h.priority);
+  renderTodoHistory();
+  showStatusToast('已恢复为未完成');
+}
+
+function deleteTodoFromHistory(id) {
+  const index = todoHistory.findIndex((h) => h.id === id);
+  if (index === -1) return;
+  const [h] = todoHistory.splice(index, 1);
+  saveTodoHistory();
+  renderTodoHistory();
+  const summary = h.text.length > 18 ? `${h.text.slice(0, 18)}…` : h.text;
+  showStatusToast(`已删除“${summary}”`);
+}
+
+function clearTodoHistory() {
+  if (!todoHistory.length) return;
+  todoHistory = [];
+  saveTodoHistory();
+  renderTodoHistory();
+  showStatusToast('已清空完成存档');
+}
+
+document.querySelectorAll('.todo-view-tab').forEach((btn) => {
+  btn.addEventListener('click', () => setTodoView(btn.dataset.todoView));
+});
+const historyList = document.getElementById('todo-history-list');
+historyList?.addEventListener('click', (event) => {
+  const item = event.target.closest('.history-item');
+  if (!item) return;
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (action === 'restore') restoreTodoFromHistory(item.dataset.id);
+  else if (action === 'delete') deleteTodoFromHistory(item.dataset.id);
+});
+document.getElementById('todo-history-clear')?.addEventListener('click', clearTodoHistory);
+updateTodoHistoryUI();

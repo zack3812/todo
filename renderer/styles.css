@@ -106,10 +106,10 @@
   --d-slow: 260ms; /* 原 320ms */
   --d-grand: 340ms;
   --d-island-close: 280ms;
-  --d-island-close-delay: 60ms;
-  --d-island-shell-fade: 80ms;
-  --d-island-shell-fade-delay: 260ms;
-  --island-half-width: 100px;
+  --d-island-close-delay: 80ms;
+  --d-island-shell-fade: 110ms;
+  --d-island-shell-fade-delay: 340ms;
+  --island-half-width: 200px;
 }
 
 * {
@@ -155,7 +155,7 @@ body {
 /* ============ 刘海条 ============ */
 .notch {
   width: 200px;
-  height: var(--notch-h, 38px); /* 菜单栏高 + 唇边，主进程按屏计算后由 JS 写入 */
+  height: var(--notch-h, 19px); /* 菜单栏高 + 唇边，主进程按屏计算后由 JS 写入 */
   position: absolute;
   top: 0;
   left: 50%;
@@ -186,7 +186,7 @@ body {
 /* 折叠态始终锁定物理刘海高度。即使原生窗口边界晚一帧收缩，
    也不会把刘海拉成占满旧视口的黑色竖柱。 */
 #app.collapsed .notch {
-  height: var(--notch-h, 38px);
+  height: var(--notch-h, 19px);
   align-items: flex-end;
   padding-bottom: 2px;
 }
@@ -318,7 +318,7 @@ body {
 
 /* 收起先退内容，再让岛体的宽、高同步向屏幕顶部中心收拢。 */
 #app.closing .notch {
-  height: var(--notch-h, 38px);
+  height: var(--notch-h, 19px);
   padding: 0;
   background: var(--bg-base);
   pointer-events: none;
@@ -1448,7 +1448,40 @@ body {
   transition: background var(--d-fast) var(--ease);
 }
 
-.todo-item:hover {
+
+/* 长按拖拽：拖起态 + 落点指示条 */
+.todo-item {
+  position: relative;
+}
+.todo-list.todo-dragging .todo-item {
+  transition: transform 160ms var(--ease-out), background 140ms var(--ease);
+}
+.todo-item.grab-pending {
+  cursor: grab;
+  background: var(--item-hover);
+}
+.todo-item.dragging {
+  cursor: grabbing;
+  opacity: 1;
+  transform: scale(1.02);
+  background: var(--item-hover);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  outline: 1px solid var(--accent-blue);
+  z-index: 2;
+}
+.todo-item.drop-before::before,
+.todo-item.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent-blue);
+  pointer-events: none;
+}
+.todo-item.drop-before::before { top: -1px; }
+.todo-item.drop-after::after { bottom: -1px; }.todo-item:hover {
   background: var(--item-hover);
 }
 
@@ -5383,3 +5416,225 @@ body {
 .settings-home-module-grid input:focus-visible + i { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .settings-home-module-grid input:disabled + i { opacity: .55; }
 #settings-home-module-status[data-state='warning'] { color: #ffb16d; }
+
+
+/* ============ 待办：待办/历史视图切换 ============ */
+#tab-todo {
+  display: flex;
+  flex-direction: column;
+}
+#tab-todo .sections {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+}
+.todo-view-switch {
+  display: flex;
+  gap: 6px;
+  margin-bottom: var(--s-2, 8px);
+  flex-shrink: 0;
+}
+.todo-view-tab {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.todo-view-tab:hover {
+  color: var(--text-1);
+}
+.todo-view-tab.active {
+  background: var(--item-hover);
+  color: var(--text-1);
+}
+.todo-history-count {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-4);
+}
+.todo-view-tab.active .todo-history-count {
+  color: var(--text-3);
+}
+
+/* ============ 待办历史视图 ============ */
+.todo-history-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3, 12px);
+  overflow: hidden;
+}
+.todo-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.todo-history-clear {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 999px;
+  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease);
+}
+.todo-history-clear:hover {
+  background: var(--item-hover);
+  color: #ff6b6b;
+}
+.todo-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: var(--surface-1);
+  transition: background var(--d-fast) var(--ease);
+}
+.history-item:hover {
+  background: var(--item-hover);
+}
+.history-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+.history-meta {
+  color: var(--text-3);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.history-meta em {
+  font-style: normal;
+  color: var(--accent-blue);
+  margin-left: 6px;
+}
+.history-restore,
+.history-delete {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 5px;
+  border-radius: 4px;
+  font-family: inherit;
+  transition: color var(--d-fast) var(--ease), background var(--d-fast) var(--ease);
+}
+.history-restore:hover {
+  color: var(--accent-green);
+  background: var(--item-hover);
+}
+.history-delete:hover {
+  color: #ff6b6b;
+  background: var(--item-hover);
+}
+.todo-history-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: 12.5px;
+  text-align: center;
+  padding: 0 24px;
+  line-height: 1.6;
+}
+
+/* ============ 完成跨度甘特图 ============ */
+.todo-gantt-wrap {
+  flex-shrink: 0;
+  max-height: 46%;
+  overflow-y: auto;
+  background: var(--surface-1);
+  border-radius: var(--r-tile);
+  padding: 10px 12px;
+}
+.todo-gantt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.gantt-axis {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 56px;
+  gap: 8px;
+  font-size: 9.5px;
+  color: var(--text-4);
+  margin-bottom: 2px;
+}
+.gantt-axis .axis-track {
+  position: relative;
+  height: 10px;
+}
+.gantt-axis .axis-track i {
+  position: absolute;
+  bottom: 0;
+  transform: translateX(-50%);
+  font-style: normal;
+  white-space: nowrap;
+}
+.gantt-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 56px;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.gantt-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.gantt-track {
+  position: relative;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--item-hover);
+}
+.gantt-bar {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 999px;
+  opacity: 0.9;
+  min-width: 2px;
+}
+.gantt-row[data-priority='P0'] .gantt-bar { background: var(--p0); }
+.gantt-row[data-priority='P1'] .gantt-bar { background: var(--accent-orange); }
+.gantt-row[data-priority='P2'] .gantt-bar { background: var(--accent-green); }
+.gantt-row[data-priority='P3'] .gantt-bar { background: var(--accent-blue); }
+.gantt-span {
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}

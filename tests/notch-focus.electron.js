@@ -20,7 +20,7 @@ async function main() {
   diagnostic('Renderer test: Electron ready');
   const window = new BrowserWindow({
     width: 200,
-    height: 38,
+    height: 19,
     show: false,
     frame: false,
     transparent: true,

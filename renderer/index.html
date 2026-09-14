@@ -223,7 +223,12 @@
           </section>
 
           <section id="tab-todo" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-todo" aria-hidden="true" inert>
-            <div class="sections">
+            <div class="todo-view-switch" role="tablist" aria-label="待办视图切换">
+              <button class="todo-view-tab active" type="button" data-todo-view="active" role="tab" aria-selected="true">待办</button>
+              <button class="todo-view-tab" type="button" data-todo-view="history" role="tab" aria-selected="false">历史<span class="todo-history-count" id="todo-history-count">0</span></button>
+            </div>
+            <div class="sections" id="todo-active-view">
+
               <section class="quadrant tile" data-priority="P0">
                 <div class="quadrant-header">
                   <span class="dot dot-p0"></span>
@@ -304,6 +309,18 @@
                 </div>
               </section>
             </div>
+            <div class="todo-history-view" id="todo-history-view" hidden>
+              <div class="todo-history-header">
+                <span>已完成存档</span>
+                <button class="todo-history-clear" id="todo-history-clear" type="button" hidden>清空存档</button>
+              </div>
+              <div class="todo-gantt-wrap" id="todo-gantt-wrap" hidden>
+                <div class="todo-gantt" id="todo-gantt"></div>
+              </div>
+              <ul class="todo-history-list" id="todo-history-list"></ul>
+              <div class="todo-history-empty" id="todo-history-empty" hidden>还没有已完成的待办，勾选完成一件后会存档在这里</div>
+            </div>
+
           </section>
 
           <section id="tab-notes" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-notes" aria-hidden="true" inert>
