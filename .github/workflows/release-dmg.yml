@@ -73,6 +73,8 @@ jobs:
           path: |
             dist.noindex/*-setup.exe
             dist.noindex/*-setup.exe.sha256
+            dist.noindex/latest.yml
+            dist.noindex/*.blockmap
           if-no-files-found: error
 
   release:
@@ -100,4 +102,4 @@ jobs:
           cd release-assets
           sha256sum --check *.sha256
           cd ..
-          gh release create "${GITHUB_REF_NAME}" release-assets/*.dmg release-assets/*.exe release-assets/*.sha256 --title "TO-DO Panel ${GITHUB_REF_NAME}" --notes-file docs/release-notes.md
+          gh release create "${GITHUB_REF_NAME}" release-assets/*.dmg release-assets/*.exe release-assets/*.sha256 release-assets/latest.yml release-assets/*.blockmap --title "TO-DO Panel ${GITHUB_REF_NAME}" --notes-file docs/release-notes.md

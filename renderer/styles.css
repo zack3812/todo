@@ -3635,6 +3635,12 @@ body {
 .settings-device-row em { color: #8eb2ff; font-style: normal; }
 .settings-device-row button { flex: 0 0 auto; min-height: 28px; padding: 0 10px; border: 0; border-radius: 9px; background: rgba(255,255,255,.06); color: var(--text-3); font: 9px var(--font); cursor: pointer; transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease); }
 .settings-device-row button:hover { background: rgba(255,255,255,.11); color: var(--text-1); }
+
+.settings-update-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; }
+.settings-update-progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.settings-update-progress-track { flex: 1 1 auto; height: 6px; min-width: 0; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; }
+.settings-update-progress-bar { display: block; height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #6f8bff, #9a7cff); transition: width .25s ease; }
+.settings-update-progress-text { flex: 0 0 auto; color: var(--text-3); font-size: 9px; white-space: nowrap; }
 .settings-default-tab-row { cursor: pointer; }
 .settings-default-tab-row select {
   flex: 0 0 auto;

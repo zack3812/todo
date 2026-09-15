@@ -1911,28 +1911,69 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
     if (settingsAppSettings) settingsAppSettings.autoLaunch = result.autoLaunch === true;
     setSettingsNote(result.autoLaunch ? '已开启开机自动启动。' : '已关闭开机自动启动。');
   });
-  // —— 自动更新（GitHub Release）——
+  // —— 自动更新（GitHub Release 检测 + Windows 下载安装）——
   const settingsUpdateVersion = document.getElementById('settings-update-version');
   const settingsUpdateCheck = document.getElementById('settings-update-check');
+  const settingsUpdateDownload = document.getElementById('settings-update-download');
+  const settingsUpdateInstall = document.getElementById('settings-update-install');
+  const settingsUpdateProgress = document.getElementById('settings-update-progress');
+  const settingsUpdateProgressBar = document.getElementById('settings-update-progress-bar');
+  const settingsUpdateProgressText = document.getElementById('settings-update-progress-text');
   const settingsUpdateStatus = document.getElementById('settings-update-status');
   function setUpdateStatus(message, error) {
     if (!settingsUpdateStatus) return;
     settingsUpdateStatus.textContent = message || '';
     settingsUpdateStatus.classList.toggle('error', Boolean(error));
   }
+  function formatUpdateBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+    return value.toFixed(value >= 100 ? 0 : 1) + ' ' + units[unit];
+  }
   function renderUpdateState(state) {
     if (!state) return;
     if (settingsUpdateVersion) settingsUpdateVersion.textContent = 'v' + (state.current || '');
-    if (state.hasUpdate) {
-      setUpdateStatus('发现新版本 v' + state.latest + '，点击右侧按钮下载。');
-    } else if (state.ok) {
+    const winAuto = state.mode === 'win-auto';
+    const status = state.status;
+    if (status === 'downloading') {
+      const progress = state.progress || {};
+      if (settingsUpdateProgress) {
+        settingsUpdateProgress.hidden = false;
+        if (settingsUpdateProgressBar) {
+          settingsUpdateProgressBar.style.width = Math.min(100, progress.percent || 0) + '%';
+        }
+        if (settingsUpdateProgressText) {
+          settingsUpdateProgressText.textContent = (progress.percent || 0) + '%'
+            + '（' + formatUpdateBytes(progress.transferred) + ' / ' + formatUpdateBytes(progress.total) + '）';
+        }
+      }
+      if (settingsUpdateCheck) settingsUpdateCheck.hidden = true;
+      if (settingsUpdateDownload) settingsUpdateDownload.hidden = true;
+      if (settingsUpdateInstall) settingsUpdateInstall.hidden = true;
+      setUpdateStatus('');
+      return;
+    }
+    if (settingsUpdateProgress) settingsUpdateProgress.hidden = true;
+    if (settingsUpdateCheck) {
+      settingsUpdateCheck.hidden = status === 'downloaded';
+      settingsUpdateCheck.disabled = false;
+    }
+    if (settingsUpdateDownload) {
+      settingsUpdateDownload.hidden = !(winAuto && status === 'available');
+      settingsUpdateDownload.disabled = false;
+    }
+    if (settingsUpdateInstall) settingsUpdateInstall.hidden = !(winAuto && status === 'downloaded');
+    if (status === 'downloaded') {
+      setUpdateStatus('更新已下载，点击「重启安装」完成升级。');
+    } else if (state.hasUpdate) {
+      setUpdateStatus(winAuto ? '发现新版本 v' + state.latest + '，点击右侧「下载更新」。' : '发现新版本 v' + state.latest + '，点击右侧按钮下载。');
+    } else if (status === 'not-available' || state.ok) {
       setUpdateStatus('已是最新版本。');
     } else {
       setUpdateStatus('检查更新失败（' + (state.error || '网络错误') + '），可稍后重试。', true);
-    }
-    if (state.hasUpdate && settingsUpdateStatus) {
-      settingsUpdateStatus.style.cursor = 'pointer';
-      settingsUpdateStatus.title = '打开下载页面';
     }
   }
   settingsUpdateCheck?.addEventListener('click', async () => {
@@ -1942,21 +1983,40 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
     const state = await window.notchAPI.checkForUpdate().catch(() => null);
     settingsUpdateCheck.disabled = false;
     renderUpdateState(state);
-    if (state?.hasUpdate) {
+    if (state?.hasUpdate && state?.mode !== 'win-auto') {
       window.notchAPI?.openUpdatePage?.(state.url);
     }
   });
-  window.notchAPI?.onUpdateState?.((state) => {
-    renderUpdateState(state);
-    if (state?.hasUpdate && typeof showStatusToast === 'function') {
-      showStatusToast('发现新版本 v' + state.latest + '，可在设置中下载。', {
-        actionLabel: '下载',
-        onAction: () => window.notchAPI?.openUpdatePage?.(state.url),
-        duration: 6000,
-      });
+  settingsUpdateDownload?.addEventListener('click', async () => {
+    if (!window.notchAPI?.downloadUpdate) return;
+    settingsUpdateDownload.disabled = true;
+    const result = await window.notchAPI.downloadUpdate().catch(() => ({ ok: false, error: '下载失败' }));
+    settingsUpdateDownload.disabled = false;
+    if (result && result.ok !== true) {
+      setUpdateStatus('下载失败（' + (result.error || '未知错误') + '）。', true);
     }
   });
-
+  settingsUpdateInstall?.addEventListener('click', () => {
+    window.notchAPI?.installUpdate?.();
+  });
+  window.notchAPI?.onUpdateState?.((state) => {
+    renderUpdateState(state);
+    if (typeof showStatusToast === 'function') {
+      if (state?.status === 'downloaded') {
+        showStatusToast('更新已下载，点击「重启安装」完成升级。', {
+          actionLabel: '重启安装',
+          onAction: () => window.notchAPI?.installUpdate?.(),
+          duration: 10000,
+        });
+      } else if (state?.hasUpdate && state?.mode !== 'win-auto') {
+        showStatusToast('发现新版本 v' + state.latest + '，可在设置中下载。', {
+          actionLabel: '下载',
+          onAction: () => window.notchAPI?.openUpdatePage?.(state.url),
+          duration: 6000,
+        });
+      }
+    }
+  });
   window.notchAPI?.onAppSettingsChanged?.((settings) => {
     settingsAppSettings = settings;
     renderSettingsPanel();

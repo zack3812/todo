@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld('notchAPI', {
   getMetrics: () => ipcRenderer.invoke('window:metrics'),
   setIgnoreMouse: (ignore) => ipcRenderer.send('window:set-ignore-mouse', ignore === true),
   checkForUpdate: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
   openUpdatePage: (url) => ipcRenderer.invoke('update:open', url),
   onUpdateState: (cb) =>
     subscribe('update:state', (event, state) => cb(state)),

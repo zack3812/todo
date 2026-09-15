@@ -1598,28 +1598,16 @@ ipcMain.handle('media:microphone', () => requestMacMediaAccess('microphone'));
 ipcMain.handle('tasks:recent', () => taskCompletionHistory);
 
 
-// ============ 自动更新（GitHub Release 检测）============
+// ============ 自动更新（GitHub Release 检测）// ============ 自动更新（GitHub Release 检测 + electron-updater 下载安装）============
 const UPDATE_REPO = 'zack3812/todo';
 const UPDATE_INITIAL_DELAY_MS = 8000;
 const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
 let updatePollTimer = null;
 let cachedUpdateState = null;
+let autoUpdater = null;
 
-async function checkForUpdate() {
-  const current = app.getVersion();
-  const token = process.env.TODO_GH_TOKEN || process.env.GITHUB_TOKEN || '';
-  const result = await fetchLatestRelease({ repo: UPDATE_REPO, token });
-  if (!result.ok) {
-    cachedUpdateState = { current, ok: false, error: result.error, hasUpdate: false, latest: null, url: null };
-    return cachedUpdateState;
-  }
-  cachedUpdateState = {
-    current,
-    ok: true,
-    hasUpdate: isNewerVersion(result.latest, current),
-    latest: result.latest,
-    url: result.url,
-  };
+function normalizeUpdateState(partial) {
+  cachedUpdateState = { mode: process.platform === 'win32' ? 'win-auto' : 'mac-link', ...cachedUpdateState, ...partial };
   return cachedUpdateState;
 }
 
@@ -1629,16 +1617,97 @@ function sendUpdateState(state) {
   }
 }
 
+async function checkForUpdate() {
+  const current = app.getVersion();
+  const token = process.env.TODO_GH_TOKEN || process.env.GITHUB_TOKEN || '';
+  const result = await fetchLatestRelease({ repo: UPDATE_REPO, token });
+  if (!result.ok) {
+    return normalizeUpdateState({ current, ok: false, error: result.error, hasUpdate: false, latest: null, url: null, status: 'error', progress: null });
+  }
+  const hasUpdate = isNewerVersion(result.latest, current);
+  return normalizeUpdateState({
+    current,
+    ok: true,
+    hasUpdate,
+    latest: result.latest,
+    url: result.url,
+    status: hasUpdate ? 'available' : 'not-available',
+    progress: null,
+    error: null,
+  });
+}
+
+// Windows：electron-updater 完整自动升级（下载进度 + 静默安装）。
+// macOS 保持「检测 + 引导打开下载页」：Squirrel.Mac 自动更新要求有效代码签名，
+// 本项目按约定使用 ad-hoc 签名且不公证，不做全自动安装。
+if (process.platform === 'win32') {
+  try {    ({ autoUpdater } = require('electron-updater'));
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.on('checking-for-update', () => {
+      sendUpdateState(normalizeUpdateState({ status: 'checking', error: null }));
+    });
+    autoUpdater.on('update-available', (info) => {
+      sendUpdateState(normalizeUpdateState({ status: 'available', hasUpdate: true, latest: info?.version || null, url: null }));
+    });
+    autoUpdater.on('update-not-available', () => {
+      sendUpdateState(normalizeUpdateState({ status: 'not-available', hasUpdate: false }));
+    });
+    autoUpdater.on('download-progress', (progress) => {
+      sendUpdateState(normalizeUpdateState({
+        status: 'downloading',
+        progress: {
+          percent: Math.round(progress.percent || 0),
+          transferred: progress.transferred || 0,
+          total: progress.total || 0,
+          bytesPerSecond: progress.bytesPerSecond || 0,
+        },
+      }));
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+      sendUpdateState(normalizeUpdateState({ status: 'downloaded', hasUpdate: true, latest: info?.version || null }));
+    });
+    autoUpdater.on('error', (error) => {
+      sendUpdateState(normalizeUpdateState({ status: 'error', error: error?.message || String(error) }));
+    });
+  } catch (error) {
+    console.warn('autoUpdater unavailable:', error.message);
+  }
+}
+
 function startUpdateChecker() {
-  setTimeout(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_INITIAL_DELAY_MS);
-  updatePollTimer = setInterval(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_POLL_MS);
+  if (process.platform === 'win32' && autoUpdater) {
+    setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, UPDATE_INITIAL_DELAY_MS);
+    updatePollTimer = setInterval(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, UPDATE_POLL_MS);
+  } else {
+    setTimeout(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_INITIAL_DELAY_MS);
+    updatePollTimer = setInterval(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_POLL_MS);
+  }
 }
 
 function stopUpdateChecker() {
   if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null; }
 }
 
-ipcMain.handle('update:check', async () => checkForUpdate());
+ipcMain.handle('update:check', async () => {
+  if (process.platform === 'win32' && autoUpdater) {
+    sendUpdateState(normalizeUpdateState({ status: 'checking', error: null }));
+    try { return await autoUpdater.checkForUpdates(); }
+    catch (error) { return normalizeUpdateState({ status: 'error', error: error?.message || String(error) }); }
+  }
+  return checkForUpdate();
+});
+ipcMain.handle('update:download', async () => {
+  if (process.platform !== 'win32' || !autoUpdater) return { ok: false, error: 'unsupported' };
+  sendUpdateState(normalizeUpdateState({ status: 'downloading', error: null }));
+  try { await autoUpdater.downloadUpdate(); return { ok: true };
+  } catch (error) { sendUpdateState(normalizeUpdateState({ status: 'error', error: error?.message || String(error) })); return { ok: false, error: error?.message || String(error) }; }
+});
+ipcMain.handle('update:install', () => {
+  if (process.platform !== 'win32' || !autoUpdater) return { ok: false, error: 'unsupported' };
+  autoUpdater.quitAndInstall();
+  return { ok: true };
+});
 ipcMain.handle('update:open', (event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) return shell.openExternal(url);
 });
