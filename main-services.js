@@ -504,18 +504,18 @@ function hoverSpacePollingPolicy({ shortcut, visible, mode } = {}) {
   };
 }
 
-const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'recordings', 'credentials', 'clip']);
-const DEFAULT_PANEL_TABS = new Set(['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings']);
+const CONFIGURABLE_FEATURES = new Set(['todo', 'notes', 'links', 'credentials', 'clip']);
+const DEFAULT_PANEL_TABS = new Set(['todo', 'notes', 'links', 'credentials', 'clip', 'settings']);
 
 function updateFeaturePreference(features, featureId, enabled) {
   if (!CONFIGURABLE_FEATURES.has(featureId) || typeof enabled !== 'boolean') return null;
   const source = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
-  return { ...source, [featureId]: enabled, home: true };
+return { ...source, [featureId]: enabled };
 }
 
 function normalizeDefaultTabPreference(defaultTab, features) {
-  if (typeof defaultTab !== 'string' || !DEFAULT_PANEL_TABS.has(defaultTab)) return 'home';
-  if (!['home', 'settings'].includes(defaultTab) && features?.[defaultTab] === false) return 'home';
+if (typeof defaultTab !== 'string' || !DEFAULT_PANEL_TABS.has(defaultTab)) return 'todo';
+if (!['settings'].includes(defaultTab) && features?.[defaultTab] === false) return 'todo';
   return defaultTab;
 }
 

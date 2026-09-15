@@ -1,6 +1,6 @@
 {
   "name": "to-do-panel",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "TO-DO Panel - a local desktop workspace for macOS and Windows",
   "main": "main.js",
   "author": "xiaopu-ai",
@@ -22,7 +22,10 @@
     "productName": "TO-DO Panel",
     "artifactName": "TO-DO-Panel-${version}-${arch}.${ext}",
     "copyright": "© 2026 xiaopu-ai",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "scripts/*.js"
+    ],
     "directories": {
       "output": "dist.noindex",
       "buildResources": "build"
@@ -38,9 +41,12 @@
       "scripts/codex-notify.js",
       "scripts/claude-notify.js",
       "package.json",
-      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/*.map",
+      "!**/*.d.ts",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme,LICENSE,LICENSE.md}",
       "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
       "!**/node_modules/.bin",
+      "!**/node_modules/.cache",
       "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
     ],
     "mac": {

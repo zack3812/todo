@@ -344,6 +344,10 @@
       createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
       deadline: new Date(deadlineMs).toISOString(),
       remindedAt: 0,
+      // NexusDesk 钉钉同步字段
+      dingtalkTaskId: '',
+      dingtalkSyncedAt: 0,
+      executorIds: [],
     };
   }
 
@@ -405,7 +409,7 @@
     const tabs = Array.isArray(allTabs) ? allTabs : [];
     const state = features && typeof features === 'object' && !Array.isArray(features) ? features : {};
     const visible = tabs.filter((name) => (
-      name !== 'settings' && (name === 'home' || state[name] !== false)
+      name !== 'settings' && state[name] !== false
     ));
     if (tabs.includes('settings')) visible.push('settings');
     return visible;
@@ -414,8 +418,7 @@
   function resolveDefaultPanelTab(preferredTab, visibleTabs) {
     const tabs = Array.isArray(visibleTabs) ? visibleTabs : [];
     if (typeof preferredTab === 'string' && tabs.includes(preferredTab)) return preferredTab;
-    if (tabs.includes('home')) return 'home';
-    return tabs[0] || 'home';
+    return tabs[0] || 'settings';
   }
 
   function normalizeNoteArchive(value) {
@@ -515,7 +518,7 @@
     const statuses = apiCredentialStatuses(input.transcription);
     return {
       shortcut: String(appSettings.shortcut || 'Space'),
-      defaultTab: String(appSettings.defaultTab || 'home'),
+defaultTab: String(appSettings.defaultTab || 'todo'),
       autoLaunch: appSettings.autoLaunch === true,
       workspacePath: String(workspace.path || ''),
       workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
@@ -563,26 +566,43 @@
     return deadline.toISOString();
   }
 
+  // 剩余/逾期时长 → 胶囊短文本与人性化 label。分钟向上取整，刚逾期至少显示 1 分钟。
+  function formatTodoClock(ms, overdue) {
+    const minutes = Math.max(1, Math.ceil(ms / 60000));
+    if (minutes < 60) {
+      return { text: `${overdue ? '+' : ''}${minutes}m`, label: overdue ? `已逾期 ${minutes}分钟` : `剩余 ${minutes}分钟` };
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return { text: `${overdue ? '+' : ''}${hours}h`, label: overdue ? `已逾期 ${hours}小时` : `剩余 ${hours}小时` };
+    }
+    const days = Math.floor(hours / 24);
+    return { text: `${overdue ? '+' : ''}${days}天`, label: overdue ? `已逾期 ${days}天` : `剩余 ${days}天` };
+  }
+
   function todoTimeBattery(todo, now = Date.now()) {
     if (!todo || todo.done === true) return null;
     const deadline = Date.parse(String(todo.deadline || ''));
     const current = Number(now);
     if (!Number.isFinite(current)) return null;
     if (!Number.isFinite(deadline)) {
-      return { percent: 0, tone: 'red', overdue: false, label: '待补充有效截止时间' };
+      return { percent: 0, tone: 'muted', overdue: false, label: '待补充有效截止时间', text: '无期限' };
     }
     // 逾期必须与「剩余 0%」分开：后者只是取整落到 0，前者已经欠账。
-    // 逾期项的电量条改为整条填满 + 白色感叹号，不能再显示成一条空槽。
+    // 逾期项的电量条整条填满 + 红色「+时长」，不能再显示成一条空槽。
     const overdue = current >= deadline;
-    // 以截止前 24 小时为满格：当天任务白天就能看到进度衰减，不再受创建时间影响
+    // 电量条仍以截止前 24 小时为满格：当天任务白天就能看到进度衰减；
+    // 数字不再显示百分比（易被读成完成度），改为人性化剩余时长。
     const DAY_MS = 24 * 3600 * 1000;
     const percent = Math.round(Math.max(0, Math.min(1, (deadline - current) / DAY_MS)) * 100);
     const tone = percent >= 80 ? 'green' : percent >= 50 ? 'yellow' : percent > 30 ? 'orange' : 'red';
+    const { text, label } = formatTodoClock(Math.abs(deadline - current), overdue);
     return {
       percent,
       tone,
       overdue,
-      label: overdue ? '已逾期' : `剩余 ${percent}%`,
+      label,
+      text,
     };
   }
 
@@ -760,6 +780,16 @@
       { column: 4, row: 2, width: 4, height: 2 },
       { column: 8, row: 2, width: 4, height: 2 },
     ],
+    8: [
+      { column: 4, row: 0, width: 4, height: 2 },   // music · 中
+      { column: 10, row: 2, width: 2, height: 1 },  // pomodoro · 迷你
+      { column: 0, row: 0, width: 4, height: 4 },   // windows · 大
+      { column: 6, row: 2, width: 2, height: 2 },   // recorder · 小
+      { column: 8, row: 0, width: 4, height: 2 },   // mirror · 中
+      { column: 4, row: 2, width: 2, height: 2 },   // note · 小
+      { column: 8, row: 2, width: 2, height: 2 },   // commands · 小
+      { column: 10, row: 3, width: 2, height: 1 },  // organize · 迷你
+    ],
   };
 
   function normalizeHiddenHomeModules(value, moduleIds) {
@@ -834,8 +864,10 @@
     if (!visibleOrder.length) return null;
 
     let placements;
-    if (visibleOrder.length === 7) {
-      placements = packHomeWidgetLayout(visibleOrder, sizes, columns, rows);
+    if (visibleOrder.length >= 7) {
+      const visibleSizes = {};
+      for (const id of visibleOrder) visibleSizes[id] = sizes[id];
+      placements = packHomeWidgetLayout(visibleOrder, visibleSizes, columns, rows);
     } else {
       const template = HOME_GAPLESS_TEMPLATES[visibleOrder.length];
       if (!template) return null;
@@ -930,11 +962,15 @@
     const map = new Map();
     for (const item of Array.isArray(items) ? items : []) {
       if (!item || typeof item !== 'object') continue;
-      const project = String(item.project || '').trim();
-      if (!map.has(project)) { map.set(project, []); order.push(project); }
-      map.get(project).push(item);
+      const displayProject = String(item.project || '').replace(/\s+/g, ' ').trim();
+      const projectKey = displayProject.toLocaleLowerCase();
+      if (!map.has(projectKey)) {
+        map.set(projectKey, { project: displayProject, items: [] });
+        order.push(projectKey);
+      }
+      map.get(projectKey).items.push(item);
     }
-    return order.map((project) => ({ project, items: map.get(project) }));
+    return order.map((key) => map.get(key));
   }
 
   // 列表中出现次数最多的项目名（空串表示无项目），用于拖拽自动归纳

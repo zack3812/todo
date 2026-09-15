@@ -460,6 +460,7 @@
     ['#tab-notes .notes-list', '.notes-list-item'],
   ];
   const lineStates = new WeakMap();
+  const lineItems = new Set();
   let lineAnimation = 0;
   let lastLineFrame = performance.now();
 
@@ -468,7 +469,11 @@
     lastLineFrame = now;
     const blend = 1 - Math.exp(-dt / 0.1);
     let moving = false;
-    document.querySelectorAll('[data-line-sidebar-item]').forEach((item) => {
+    for (const item of lineItems) {
+      if (!item.isConnected) {
+        lineItems.delete(item);
+        continue;
+      }
       const state = lineStates.get(item) || { current: 0, target: 0 };
       const active = item.matches('.active, .multi-selected, [aria-current="true"], [aria-selected="true"]');
       const target = Math.max(state.target, active ? 0.72 : 0);
@@ -477,7 +482,7 @@
       else moving = true;
       item.style.setProperty('--line-effect', state.current.toFixed(4));
       lineStates.set(item, state);
-    });
+    }
     lineAnimation = moving ? requestAnimationFrame(runLineFrame) : 0;
   }
 
@@ -516,6 +521,7 @@
         list.classList.add('line-sidebar-list');
         list.querySelectorAll(itemSelector).forEach((item) => {
           item.dataset.lineSidebarItem = '';
+          lineItems.add(item);
           if (!lineStates.has(item)) lineStates.set(item, { current: 0, target: 0 });
         });
         if (list.dataset.lineSidebarBound === 'true') return;

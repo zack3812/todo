@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self' wss://*.workers.dev https://*.workers.dev wss://*.dpdns.org https://*.dpdns.org; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TO-DO Panel</title>
@@ -27,12 +27,14 @@
       <div id="panel" class="panel" aria-hidden="true" inert>
         <header class="topbar">
           <div class="tabs" id="tabs" role="tablist">
-            <button class="tab" id="tab-button-home" type="button" data-tab="home" role="tab" aria-controls="tab-home" aria-selected="false" tabindex="-1">
+            <button class="tab" id="tab-button-weekly" type="button" data-tab="weekly" role="tab" aria-controls="tab-weekly" aria-selected="false" tabindex="-1">
               <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M4 11.5 12 4l8 7.5" />
-                <path d="M6 10v9h12v-9" />
+                <path d="M4 5h16v15H4z" />
+                <path d="M8 3v4M16 3v4" />
+                <path d="M4 11h16" />
+                <path d="M9 16l2 2 4-4" />
               </svg>
-              <span class="tab-label">首页</span>
+              <span class="tab-label">周报</span>
             </button>
             <button class="tab" id="tab-button-todo" type="button" data-tab="todo" role="tab" aria-controls="tab-todo" aria-selected="false" tabindex="-1">
               <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -64,13 +66,6 @@
               </svg>
               <span class="tab-label">链接</span>
             </button>
-            <button class="tab" id="tab-button-recordings" type="button" data-tab="recordings" role="tab" aria-controls="tab-recordings" aria-selected="false" tabindex="-1">
-              <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <rect x="8" y="3" width="8" height="13" rx="4" />
-                <path d="M5 11a7 7 0 0 0 14 0M12 18v3M8.5 21h7" />
-              </svg>
-              <span class="tab-label">录制</span>
-            </button>
             <button class="tab" id="tab-button-credentials" type="button" data-tab="credentials" role="tab" aria-controls="tab-credentials" aria-selected="false" tabindex="-1">
               <svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                 <circle cx="8" cy="15" r="4" /><path d="m11 12 7-7 2 2-2 2 1.5 1.5-2.5 2.5-1.5-1.5-2 2" />
@@ -87,6 +82,21 @@
             <span class="tab-indicator" id="tab-indicator" aria-hidden="true"></span>
           </div>
 
+          <section class="todo-weekly-card" id="todo-weekly-card" aria-label="AI 周报">
+            <div class="todo-weekly-head">
+              <span class="tile-label">AI 周报</span>
+              <strong id="todo-weekly-title">本周复盘</strong>
+            </div>
+            <p class="todo-weekly-meta" id="todo-weekly-meta">会结合上周总结，生成本周进展、整体进度和下周待办。</p>
+            <button class="workspace-button compact primary" id="todo-weekly-generate" type="button">生成本周总结</button>
+            <div class="todo-weekly-result" id="todo-weekly-result" hidden>
+              <button class="todo-weekly-close" id="todo-weekly-close" type="button" aria-label="关闭周报总结">×</button>
+              <article><span>本周进展</span><div id="todo-weekly-progress"></div></article>
+              <article><span>整体进度</span><div id="todo-weekly-status"></div></article>
+              <article><span>下周待办</span><div id="todo-weekly-next"></div></article>
+            </div>
+          </section>
+
         </header>
 
         <div class="shortcut-recorder" id="shortcut-recorder" tabindex="-1" hidden>
@@ -97,128 +107,39 @@
         </div>
 
         <div class="panels" id="panels">
-          <section id="tab-home" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-home" aria-hidden="true" inert>
-            <div class="home-bento" id="home-bento" aria-label="可长按拖动调整的首页布局">
-              <!-- 本地汽水音乐控制 -->
-              <section class="tile home-music" id="home-music" data-home-module="music" data-widget-size="medium" aria-label="汽水音乐播放器">
-                <canvas class="module-effect-canvas" id="music-color-bends" aria-hidden="true"></canvas>
-                <div class="music-copy">
-                  <strong id="music-title">汽水音乐</strong>
-                </div>
-                <div class="music-controls" role="group" aria-label="汽水音乐控制">
-                  <button type="button" data-music-action="previous" aria-label="上一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 9 12l9 6V6Z" /><path d="M6 6v12" /></svg></button>
-                  <button class="music-play" id="music-play-toggle" type="button" data-music-action="play" aria-label="播放"><svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5z" /></svg></button>
-                  <button type="button" data-music-action="next" aria-label="下一首"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 6 9 6-9 6V6Z" /><path d="M18 6v12" /></svg></button>
-                </div>
-              </section>
 
-              <section class="tile home-pomodoro" id="home-pomodoro" data-home-module="pomodoro" data-widget-size="mini" aria-label="番茄钟">
-                <button class="pomodoro-toggle" id="pomodoro-toggle" type="button" aria-label="开始番茄钟">
-                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5z" /></svg>
-                </button>
-                <div class="pomodoro-readout">
-                  <div class="pomodoro-status" aria-label="预计结束时间">
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM9.7 19a2.5 2.5 0 0 0 4.6 0H9.7Z" /></svg>
-                    <time id="pomodoro-end-time">--:--</time>
-                  </div>
-                  <div class="pomodoro-dial" id="pomodoro-dial" aria-label="设置番茄钟时长">
-                    <input id="pomodoro-minutes" value="05" inputmode="numeric" maxlength="2" aria-label="分钟" />
-                    <span>:</span>
-                    <input id="pomodoro-seconds" value="00" inputmode="numeric" maxlength="2" aria-label="秒" />
-                  </div>
-                  <span class="pomodoro-caption">Timer</span>
+          <section id="tab-weekly" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-weekly" aria-hidden="true" inert>
+            <div class="weekly-page">
+              <header class="weekly-page-head">
+                <div class="weekly-page-title">
+                  <h2 id="weekly-title">本周复盘</h2>
+                  <p id="weekly-meta">会结合上周总结，生成本周进展、整体进度和下周待办。</p>
                 </div>
-                <button class="pomodoro-reset" id="pomodoro-reset" type="button" aria-label="重置番茄钟" hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>
-                </button>
-              </section>
-
-              <!-- 快速录音与实时转写 -->
-              <section class="tile home-recorder" id="home-recorder" data-home-module="recorder" data-widget-size="medium">
-                <div class="recorder-head">
-                  <span class="recording-state-dot" id="home-recording-dot"></span>
-                  <span class="tile-label" id="home-recording-state">快速录音</span>
-                  <time id="home-recording-time">00:00</time>
+                <button class="workspace-button compact" id="weekly-prompt-toggle" type="button">提示词</button>
+                <button class="workspace-button compact primary" id="weekly-generate" type="button">生成本周总结</button>
+              </header>
+              <div class="weekly-prompt-box" id="weekly-prompt-box" hidden>
+                <textarea id="weekly-prompt-input" rows="3" placeholder="自定义周报 AI 提示词，留空使用默认提示。例如：你是我的技术复盘助手，重点总结代码与项目进展，条理清晰，避免空话。"></textarea>
+                <div class="weekly-prompt-actions">
+                  <button class="workspace-button compact" id="weekly-prompt-reset" type="button">恢复默认</button>
+                  <button class="workspace-button compact primary" id="weekly-prompt-save" type="button">保存提示词</button>
                 </div>
-                <p class="home-transcript" id="home-live-transcript" aria-live="polite" hidden></p>
-                <div class="recorder-controls">
-                  <button class="record-control record-start" id="record-start" type="button" aria-label="开始录音">
-                    <span></span>
-                  </button>
-                  <button class="record-control" id="record-pause" type="button" aria-label="暂停录音" disabled>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 7v10M15 7v10" /></svg>
-                  </button>
-                  <button class="record-control" id="record-stop" type="button" aria-label="结束录音" disabled>
-                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" /></svg>
-                  </button>
-                </div>
-              </section>
-
-              <!-- 当前打开的窗口 -->
-              <section class="tile home-windows" data-home-module="windows" data-widget-size="large">
-                <div class="tile-head">
-                  <span class="tile-label">当前窗口</span>
-                  <button class="windows-hidden" id="windows-hidden" type="button" hidden title="恢复已隐藏窗口"></button>
-                  <button class="squircle windows-refresh" id="windows-refresh" type="button" aria-label="刷新当前窗口">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                      <path d="M20 11a8 8 0 1 0-2.35 5.65" /><path d="M20 5v6h-6" />
-                    </svg>
-                  </button>
-                </div>
-                <div class="window-list" id="window-list">
-                  <div class="window-empty">展开后读取当前窗口…</div>
-                </div>
-              </section>
-
-              <!-- 镜子：静态人像封面；点击切换实时镜头 -->
-              <section class="tile home-mirror" data-home-module="mirror" data-widget-size="medium">
-                <button class="mirror-stage" id="mirror-stage" type="button" aria-label="打开实时镜子" aria-pressed="false">
-                  <img class="mirror-photo" src="assets/mirror-portrait.jpg" alt="" draggable="false" />
-                  <img class="mirror-photo mirror-liquid-layer" src="assets/mirror-portrait.jpg" alt="" draggable="false" />
-                  <video class="mirror-video" id="mirror-video" muted playsinline aria-hidden="true"></video>
-                  <canvas class="mirror-water-canvas" id="mirror-water-canvas" aria-hidden="true"></canvas>
-                  <span class="mirror-pixel-reveal" id="mirror-pixel-reveal" aria-hidden="true"></span>
-                  <span class="mirror-ripple" aria-hidden="true"></span>
-                  <svg class="mirror-filter-defs" width="0" height="0" aria-hidden="true">
-                    <filter id="mirror-liquid-filter" x="-15%" y="-15%" width="130%" height="130%">
-                      <feTurbulence type="fractalNoise" baseFrequency="0.012 0.022" numOctaves="2" seed="7" result="noise" />
-                      <feDisplacementMap id="mirror-displacement" in="SourceGraphic" in2="noise" scale="0" xChannelSelector="R" yChannelSelector="B" />
-                    </filter>
-                  </svg>
-                </button>
-              </section>
-
-              <!-- 速记 -->
-              <section class="tile home-note" data-home-module="note" data-widget-size="large">
-                <div class="note-toolbar" role="toolbar" aria-label="随笔记操作">
-                  <span class="tile-label">随笔记</span>
-                  <div class="note-persist-actions" role="group" aria-label="速记保存操作">
-                    <button class="note-mode note-save-btn" id="note-save-btn" type="button" aria-label="保存笔记" title="保存笔记">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h12l2 2v14H5z"/><path d="M8 4v6h8V4M8 20v-6h8v6"/></svg>
-                    </button>
-                  </div>
-                </div>
-                <div class="note-body">
-                  <textarea
-                    id="home-note"
-                    class="note-input"
-                    placeholder="用 Markdown 随手记点什么…"
-                    aria-label="Markdown 速记内容"
-                    spellcheck="false"
-                  ></textarea>
-                </div>
-              </section>
-
-              <!-- 常用指令 -->
-              <section class="tile home-commands" data-home-module="commands" data-widget-size="medium">
-                <div class="tile-head">
-                  <span class="tile-label">常用指令</span>
-                  <button class="bulk-delete" id="command-bulk-delete" type="button" hidden>删除</button>
-                </div>
-                <input class="command-add" id="command-add" type="text" placeholder="输入指令，回车保存…" maxlength="500" autocomplete="off" spellcheck="false" />
-                <div class="command-list" id="command-list"></div>
-              </section>
-
+              </div>
+              <nav class="weekly-history" id="weekly-history" aria-label="历史周报" hidden></nav>
+              <div class="weekly-body">
+                <article class="weekly-column">
+                  <span class="weekly-column-label">本周进展</span>
+                  <div class="weekly-content" id="weekly-progress"></div>
+                </article>
+                <article class="weekly-column">
+                  <span class="weekly-column-label">整体进度</span>
+                  <div class="weekly-content" id="weekly-status"></div>
+                </article>
+                <article class="weekly-column">
+                  <span class="weekly-column-label">下周待办</span>
+                  <div class="weekly-content" id="weekly-next"></div>
+                </article>
+              </div>
             </div>
           </section>
 
@@ -227,6 +148,7 @@
               <button class="todo-view-tab active" type="button" data-todo-view="active" role="tab" aria-selected="true">待办</button>
               <button class="todo-view-tab" type="button" data-todo-view="history" role="tab" aria-selected="false">历史<span class="todo-history-count" id="todo-history-count">0</span></button>
               <button class="todo-view-tab todo-group-toggle" type="button" id="todo-group-toggle" title="按项目分组查看，方便归纳">分组</button>
+              <button class="todo-add-button" id="todo-add-open" type="button" title="添加待办">＋ 添加</button>
             </div>
             <div class="sections" id="todo-active-view">
 
@@ -238,16 +160,6 @@
                   <span class="count" data-priority="P0">0</span>
                 </div>
                 <ul class="todo-list" data-priority="P0"></ul>
-                <div class="add-row">
-                  <input
-                    type="text"
-                    placeholder="添加待办，回车保存…"
-                    aria-label="添加重要且紧急待办"
-                    data-priority="P0"
-                    maxlength="80"
-                  />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P0" aria-label="选择重要且紧急待办截止时间"><span>日期</span></button>
-                </div>
               </section>
 
               <section class="quadrant tile" data-priority="P1">
@@ -258,16 +170,6 @@
                   <span class="count" data-priority="P1">0</span>
                 </div>
                 <ul class="todo-list" data-priority="P1"></ul>
-                <div class="add-row">
-                  <input
-                    type="text"
-                    placeholder="添加待办，回车保存…"
-                    aria-label="添加重要不紧急待办"
-                    data-priority="P1"
-                    maxlength="80"
-                  />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P1" aria-label="选择重要不紧急待办截止时间"><span>日期</span></button>
-                </div>
               </section>
 
               <section class="quadrant tile" data-priority="P2">
@@ -278,16 +180,6 @@
                   <span class="count" data-priority="P2">0</span>
                 </div>
                 <ul class="todo-list" data-priority="P2"></ul>
-                <div class="add-row">
-                  <input
-                    type="text"
-                    placeholder="添加待办，回车保存…"
-                    aria-label="添加紧急不重要待办"
-                    data-priority="P2"
-                    maxlength="80"
-                  />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P2" aria-label="选择紧急不重要待办截止时间"><span>日期</span></button>
-                </div>
               </section>
 
               <section class="quadrant tile" data-priority="P3">
@@ -298,16 +190,6 @@
                   <span class="count" data-priority="P3">0</span>
                 </div>
                 <ul class="todo-list" data-priority="P3"></ul>
-                <div class="add-row">
-                  <input
-                    type="text"
-                    placeholder="添加待办，回车保存…"
-                    aria-label="添加不重要不紧急待办"
-                    data-priority="P3"
-                    maxlength="80"
-                  />
-                  <button class="todo-deadline-trigger" type="button" data-deadline-priority="P3" aria-label="选择不重要不紧急待办截止时间"><span>日期</span></button>
-                </div>
               </section>
             </div>
             <div class="todo-history-view" id="todo-history-view" hidden>
@@ -362,25 +244,6 @@
             </div>
           </section>
 
-          <section id="tab-recordings" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-recordings" aria-hidden="true" inert>
-            <div class="recordings-page">
-              <aside class="recording-library">
-                <div class="recording-library-head">
-                  <div><span class="tile-label">录音资料库</span><strong id="recording-count">0 条</strong></div>
-                  <div class="recording-library-actions">
-                    <button class="workspace-button compact" id="recording-configure" type="button">API 配置</button>
-                    <button class="workspace-button compact primary" id="recording-new" type="button">录音</button>
-                  </div>
-                  <button class="bulk-delete" id="recording-bulk-delete" type="button" hidden>删除</button>
-                </div>
-                <div class="recording-list" id="recording-list"></div>
-              </aside>
-              <section class="recording-detail" id="recording-detail">
-                <div class="recording-detail-empty">完成一次录音后，音频和转写文本会保存在这里。</div>
-              </section>
-            </div>
-          </section>
-
           <section id="tab-clip" class="tab-panel" role="tabpanel" aria-labelledby="tab-button-clip" aria-hidden="true" inert>
             <div class="clip-panel">
               <div class="clip-toolbar" id="clip-toolbar">
@@ -428,54 +291,58 @@
                     <button class="workspace-button compact" id="settings-api-configure" type="button">配置或替换</button>
                   </div>
                   <div class="settings-status-list">
-                    <div><span>通义百炼实时转写</span><small id="settings-transcription-status" data-state="empty">未配置</small></div>
-                    <div><span>DeepSeek 智能命名</span><small id="settings-llm-status" data-state="empty">未配置</small></div>
+                    <div><span>上游模型</span><small id="settings-llm-status" data-state="empty">未配置</small></div>
+                    <div><span>当前模型</span><small id="settings-llm-model">未设置</small></div>
                   </div>
-                  <p>密钥由系统安全存储加密，仅在你主动查看或复制时解密。</p>
+                  <p>支持 OpenAI-compatible Chat Completions。密钥由系统安全存储加密，仅在请求时使用。</p>
+                </section>
+
+                <section class="tile settings-card settings-nexusdesk-card">
+                  <div class="settings-card-heading">
+                    <div><span class="tile-label">NexusDesk 云同步</span><strong>钉钉 & 多端</strong></div>
+                    <label class="settings-switch">
+                      <input type="checkbox" id="nexusdesk-sync-enabled" aria-label="启用云同步" />
+                      <i aria-hidden="true"></i>
+                    </label>
+                  </div>
+                  <div class="settings-status-list">
+                    <div><span>连接状态</span><small id="nexusdesk-sync-status" data-state="disconnected"><span class="nexusdesk-dot"></span>未连接</small></div>
+                    <div><span>云端中枢</span><small>NexusDesk Cloud</small></div>
+                  </div>
+                  <div class="nexusdesk-config-fields" id="nexusdesk-config-fields" hidden>
+                    <label class="settings-input-row">
+                      <span>工号</span>
+                      <input type="text" id="nexusdesk-user-id" placeholder="你的工号" autocomplete="username" />
+                    </label>
+                    <label class="settings-input-row">
+                      <span>密码</span>
+                      <input type="password" id="nexusdesk-password" placeholder="默认密码=工号" autocomplete="current-password" />
+                    </label>
+                    <div class="nexusdesk-actions">
+                      <button class="workspace-button compact" id="nexusdesk-sync-connect" type="button">登录并连接</button>
+                      <button class="workspace-button compact" id="nexusdesk-sync-save" type="button">断开</button>
+                    </div>
+                  </div>
+                  <p>启用后，待办的创建、修改、完成、删除会实时同步到钉钉和其他设备。配置保存在本地，不上传密钥。</p>
                 </section>
 
                 <section class="tile settings-card settings-features-card">
                   <div class="settings-card-heading">
                     <div><span class="tile-label">工作区</span><strong>显示功能</strong></div>
-                    <small>首页与设置始终显示</small>
+                    <small>设置始终显示</small>
                   </div>
                   <div class="settings-feature-grid" id="settings-feature-list">
                     <label><span><b>待办</b><small>四象限任务</small></span><input type="checkbox" data-settings-feature="todo" aria-label="显示待办" /><i aria-hidden="true"></i></label>
                     <label><span><b>笔记</b><small>随笔与资料库</small></span><input type="checkbox" data-settings-feature="notes" aria-label="显示笔记" /><i aria-hidden="true"></i></label>
                     <label><span><b>链接</b><small>收藏与分组</small></span><input type="checkbox" data-settings-feature="links" aria-label="显示链接" /><i aria-hidden="true"></i></label>
-                    <label><span><b>录制</b><small>录音与转写</small></span><input type="checkbox" data-settings-feature="recordings" aria-label="显示录制" /><i aria-hidden="true"></i></label>
                     <label><span><b>密钥</b><small>本机安全存储</small></span><input type="checkbox" data-settings-feature="credentials" aria-label="显示密钥" /><i aria-hidden="true"></i></label>
                     <label><span><b>剪贴板</b><small>默认关闭</small></span><input type="checkbox" data-settings-feature="clip" aria-label="显示剪贴板" /><i aria-hidden="true"></i></label>
                   </div>
                 </section>
 
-                <section class="tile settings-card settings-home-modules-card">
-                  <div class="settings-card-heading">
-                    <div><span class="tile-label">首页</span><strong>首页组件</strong></div>
-                    <small id="settings-home-module-status">隐藏后自动填充 · 至少保留一个</small>
-                  </div>
-                  <div class="settings-home-module-grid" id="settings-home-module-list">
-                    <label><span><b>音乐</b><small>播放状态与控制</small></span><input type="checkbox" data-settings-home-module="music" aria-label="显示音乐" /><i aria-hidden="true"></i></label>
-                    <label><span><b>番茄钟</b><small>专注计时</small></span><input type="checkbox" data-settings-home-module="pomodoro" aria-label="显示番茄钟" /><i aria-hidden="true"></i></label>
-                    <label><span><b>快速录音</b><small data-home-module-setting-note="recorder">录音与转写</small></span><input type="checkbox" data-settings-home-module="recorder" aria-label="显示快速录音" /><i aria-hidden="true"></i></label>
-                    <label><span><b>当前窗口</b><small>窗口快速切换</small></span><input type="checkbox" data-settings-home-module="windows" aria-label="显示当前窗口" /><i aria-hidden="true"></i></label>
-                    <label><span><b>镜子</b><small>相机与封面</small></span><input type="checkbox" data-settings-home-module="mirror" aria-label="显示镜子" /><i aria-hidden="true"></i></label>
-                    <label><span><b>随笔记</b><small>首页快速记录</small></span><input type="checkbox" data-settings-home-module="note" aria-label="显示随笔记" /><i aria-hidden="true"></i></label>
-                    <label><span><b>常用指令</b><small>提示词快捷入口</small></span><input type="checkbox" data-settings-home-module="commands" aria-label="显示常用指令" /><i aria-hidden="true"></i></label>
-                  </div>
-                </section>
               </div>
 
               <div class="settings-column settings-column-secondary">
-                <section class="tile settings-card settings-mirror-card">
-                  <img id="settings-mirror-preview" src="assets/mirror-portrait.jpg" alt="当前首页镜子配图" draggable="false" />
-                  <div>
-                    <span class="tile-label">首页镜子</span>
-                    <strong>封面图片</strong>
-                    <p>支持 PNG、JPG、WebP 与 HEIC，替换后首页立即同步。</p>
-                    <button class="workspace-button compact" id="settings-mirror-choose" type="button">选择图片…</button>
-                  </div>
-                </section>
 
                 <section class="tile settings-card settings-device-card">
                   <div class="settings-card-heading">
@@ -488,14 +355,12 @@
                   <div class="settings-device-row settings-default-tab-row">
                     <div><span>默认展开页</span><strong>每次唤出面板时显示</strong></div>
                     <div class="custom-select settings-default-tab-select" id="settings-default-tab-wrap">
-                      <button type="button" class="custom-select-trigger" id="settings-default-tab-trigger" aria-haspopup="listbox" aria-label="默认展开页">首页</button>
+                      <button type="button" class="custom-select-trigger" id="settings-default-tab-trigger" aria-haspopup="listbox" aria-label="默认展开页">待办</button>
                       <div class="custom-select-menu" role="listbox" id="settings-default-tab-menu" hidden></div>
                       <select id="settings-default-tab" aria-label="默认展开页" hidden>
-                        <option value="home">首页</option>
-                        <option value="todo">待办</option>
+                                                <option value="todo">待办</option>
                         <option value="notes">笔记</option>
                         <option value="links">链接</option>
-                        <option value="recordings">录制</option>
                         <option value="credentials">密钥</option>
                         <option value="clip">剪贴板</option>
                         <option value="settings">设置</option>
@@ -531,6 +396,25 @@
             </div>
           </section>
         </div>
+        <div class="todo-progress-backdrop" id="todo-progress-backdrop" hidden>
+          <section class="todo-progress-card" role="dialog" aria-modal="true" aria-labelledby="todo-progress-title">
+            <header>
+              <div><span class="tile-label">本周进度</span><strong id="todo-progress-title">待办</strong></div>
+              <button id="todo-progress-cancel" type="button" aria-label="关闭进度编辑">×</button>
+            </header>
+            <label><span>状态</span>
+              <select id="todo-progress-status">
+                <option>未开始</option>
+                <option>进行中</option>
+                <option>已完成</option>
+                <option>延期</option>
+              </select>
+            </label>
+            <label><span>本周进展</span><textarea id="todo-progress-text" maxlength="1200" placeholder="完成了什么，遇到了什么问题？"></textarea></label>
+            <label><span>下周计划</span><textarea id="todo-progress-next" maxlength="1200" placeholder="下周准备继续做什么？"></textarea></label>
+            <footer><button class="workspace-button compact" id="todo-progress-cancel-bottom" type="button">取消</button><button class="workspace-button compact primary" id="todo-progress-save" type="button">保存进度</button></footer>
+          </section>
+        </div>
         <div class="todo-date-popover" id="todo-date-popover" hidden>
           <section class="todo-editor-card" role="group" aria-label="截止日期与时间">
             <header class="todo-calendar-head">
@@ -561,62 +445,76 @@
           </section>
         </div>
 
+        <div class="todo-add-backdrop" id="todo-add-backdrop" hidden>
+          <section class="todo-add-card" role="dialog" aria-modal="true" aria-labelledby="todo-add-title">
+            <header class="todo-add-head">
+              <div>
+                <strong id="todo-add-title">添加待办</strong>
+                <span>选择分类和截止时间后创建</span>
+              </div>
+              <button id="todo-add-close" type="button" aria-label="关闭添加待办">×</button>
+            </header>
+            <div class="todo-add-body">
+              <label class="todo-add-field">
+                <span>内容</span>
+                <input id="todo-add-input" type="text" maxlength="80" placeholder="要做点什么？" autocomplete="off" spellcheck="false" />
+              </label>
+              <div class="todo-add-field">
+                <span>分类</span>
+                <div class="todo-add-categories" id="todo-add-categories" role="radiogroup" aria-label="待办分类"></div>
+              </div>
+              <div class="todo-add-field">
+                <span>截止时间</span>
+                <button class="todo-add-time" id="todo-add-time" type="button">今天 23:30</button>
+              </div>
+            </div>
+            <footer class="todo-add-actions">
+              <button class="workspace-button compact" id="todo-add-cancel" type="button">取消</button>
+              <button class="workspace-button compact primary" id="todo-add-create" type="button">创建</button>
+            </footer>
+          </section>
+        </div>
+
         <div class="transcription-settings-backdrop" id="transcription-settings-backdrop" hidden>
           <section class="transcription-settings-card" role="dialog" aria-modal="true" aria-labelledby="transcription-settings-title">
             <div class="transcription-settings-head">
               <div>
-                <strong id="transcription-settings-title">API 配置</strong>
-                <span>实时转写与智能命名 · 密钥仅加密保存在本机</span>
+                <strong id="transcription-settings-title">AI 配置</strong>
+                <span>配置一个可用的 OpenAI-compatible 上游模型</span>
               </div>
               <button id="transcription-settings-close" type="button" aria-label="关闭转写设置">×</button>
             </div>
             <div class="transcription-field api-key-field">
               <div class="api-field-heading">
-                <label for="transcription-api-key">通义百炼实时转写 API Key</label>
-                <small id="transcription-api-status" data-state="empty">未配置</small>
-              </div>
-              <input id="transcription-api-key" type="password" placeholder="sk-…（已配置时留空即可）" autocomplete="off" spellcheck="false" />
-              <button class="api-key-help" id="transcription-api-help" type="button">前往阿里云百炼创建或管理 API Key <span aria-hidden="true">↗</span></button>
-            </div>
-            <div class="transcription-fields-row">
-              <label class="transcription-field">
-                <span>地域</span>
-                <select id="transcription-region">
-                  <option value="beijing">华北 2（北京）</option>
-                  <option value="singapore">新加坡</option>
-                </select>
-              </label>
-              <label class="transcription-field">
-                <span>Workspace ID（可选）</span>
-                <input id="transcription-workspace" type="text" placeholder="业务空间 ID" autocomplete="off" spellcheck="false" />
-              </label>
-            </div>
-            <div class="api-settings-divider"><span>智能命名与分组</span><small>OpenAI-compatible</small></div>
-            <div class="transcription-field api-key-field">
-              <div class="api-field-heading">
-                <label for="llm-api-key">DeepSeek API Key</label>
+                <label for="llm-api-key">API Key</label>
                 <small id="llm-api-status" data-state="empty">未配置</small>
               </div>
               <input id="llm-api-key" type="password" placeholder="已配置时留空即可" autocomplete="off" spellcheck="false" />
-              <button class="api-key-help" id="llm-api-help" type="button">前往 DeepSeek 创建或管理 API Key <span aria-hidden="true">↗</span></button>
             </div>
             <div class="transcription-fields-row llm-fields-row">
               <label class="transcription-field">
                 <span>Base URL</span>
-                <input id="llm-base-url" type="url" placeholder="https://…/v1" autocomplete="off" spellcheck="false" />
+                <input id="llm-base-url" type="url" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false" />
               </label>
               <label class="transcription-field">
                 <span>模型</span>
-                <input id="llm-model" type="text" placeholder="deepseek-v4-flash" autocomplete="off" spellcheck="false" />
+                <div class="llm-model-row">
+                  <select id="llm-model" title="从自动获取的模型列表中选择">
+                    <option value="">选择模型</option>
+                  </select>
+                  <button class="workspace-button compact" id="llm-model-fetch" type="button" title="从 Base URL 自动获取可用模型">自动获取</button>
+                </div>
               </label>
             </div>
             <p class="transcription-settings-note" id="transcription-settings-note">API Key 会由系统安全存储加密，渲染页面无法读取。</p>
             <div class="transcription-settings-actions">
               <button class="workspace-button compact" id="transcription-settings-cancel" type="button">取消</button>
+              <button class="workspace-button compact" id="transcription-settings-test" type="button">测试连接</button>
               <button class="workspace-button compact primary" id="transcription-settings-save" type="button">保存</button>
             </div>
           </section>
         </div>
+
         <div class="status-toast" id="status-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden="true" hidden>
           <span id="status-toast-message"></span>
           <button id="status-toast-action" type="button" hidden>撤销</button>
@@ -625,6 +523,7 @@
     </div>
     <script src="../platform.js"></script>
     <script src="domain.js"></script>
+    <script src="dingtalk-sync.js"></script>
     <script src="effects.js"></script>
     <script src="app.js"></script>
     <script src="workspace.js"></script>

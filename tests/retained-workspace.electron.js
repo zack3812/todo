@@ -14,13 +14,24 @@ async function main() {
     await window.webContents.executeJavaScript(`
       localStorage.clear();
       localStorage.setItem('notch-recordings', JSON.stringify([{id:'retained-recording',createdAt:1788709776699,durationMs:1558,transcript:'',audioPath:'recordings/retained.webm',mimeType:'audio/webm',title:'Saved recording',category:'未分类'}]));
-      document.getElementById('home-note').value = 'Retained note';
-      document.getElementById('home-note').dispatchEvent(new Event('input', {bubbles:true}));
     `);
     await window.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-    const state = await window.webContents.executeJavaScript(`({home:!!window.NotchHome,workspace:!!window.NotchWorkspace,note:document.getElementById('home-note').value,recordings:document.querySelectorAll('.recording-item').length})`);
+    const state = await window.webContents.executeJavaScript(`(async () => {
+        const appSurface = document.getElementById('app');
+        appSurface.classList.remove('collapsed', 'opening', 'closing');
+        appSurface.classList.add('expanded');
+        document.getElementById('tab-button-todo').click();
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        return {
+          workspace: !!window.NotchWorkspace,
+          recordings: document.querySelectorAll('.recording-item').length,
+          recordingTab: !!document.getElementById('tab-button-recordings'),
+          homeTab: !!document.getElementById('tab-button-home'),
+          defaultTodo: document.getElementById('tab-todo')?.classList.contains('active'),
+        };
+      })()`);
     assert.deepEqual(errors, [], 'Retained profile must initialize without renderer errors');
-    assert.deepEqual(state, {home:true,workspace:true,note:'Retained note',recordings:1});
+    assert.deepEqual(state, {workspace:true,recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
     console.log('Retained workspace renderer checks passed');
   } finally { window.destroy(); }
 }

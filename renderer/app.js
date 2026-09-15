@@ -1,6 +1,8 @@
 const STORAGE_KEY = 'notch-todo-data';
 const PRIORITIES = ['P0', 'P1', 'P2', 'P3'];
 const TODO_CATEGORY_KEY = 'notch-todo-category-names-v1';
+const TODO_PROGRESS_KEY = 'notch-todo-progress-v1';
+const TODO_WEEKLY_SUMMARY_KEY = 'notch-todo-weekly-summaries-v1';
 // 用户手动拖放后每列的显示顺序（id 数组）。独立于 notch-todo-data 存储，
 // 只记录「用户拖过」的列；未拖过的列仍按 deadline 排序。
 const TODO_ORDER_KEY = 'notch-todo-order-v1';
@@ -53,11 +55,22 @@ async function hydratePortableWorkspace() {
     setInterval(() => window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {}), 2000);
   } catch (error) {}
 }
+
+function initNexusDeskSync() {
+  if (!window.NexusDeskSync) return;
+  window.NexusDeskSync.setRemoteTodoHandler(handleRemoteTodoChange);
+  window.NexusDeskSync.initSync();
+}
+
 // Do not interrupt parser-loaded workspace scripts with a recovery navigation.
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', hydratePortableWorkspace, { once: true });
+  document.addEventListener('DOMContentLoaded', () => {
+    hydratePortableWorkspace();
+    initNexusDeskSync();
+  }, { once: true });
 } else {
   hydratePortableWorkspace();
+  initNexusDeskSync();
 }
 window.notchAPI?.onWorkspaceChanged?.(() => {
   sessionStorage.removeItem('notch-workspace-hydrated');
@@ -259,6 +272,60 @@ function saveTodoHistory() {
   }
 }
 
+function loadTodoProgress() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODO_PROGRESS_KEY) || 'null');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveTodoProgress() {
+  try {
+    localStorage.setItem(TODO_PROGRESS_KEY, JSON.stringify(todoProgress));
+  } catch (error) {}
+}
+
+function loadWeeklySummaries() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TODO_WEEKLY_SUMMARY_KEY) || 'null');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveWeeklySummaries() {
+  try {
+    localStorage.setItem(TODO_WEEKLY_SUMMARY_KEY, JSON.stringify(weeklySummaries));
+  } catch (error) {}
+}
+
+function weekStart(value = Date.now()) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return new Date();
+  const day = (date.getDay() + 6) % 7;
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() - day);
+  return date;
+}
+
+function weekKey(value = Date.now()) {
+  return weekStart(value).toISOString().slice(0, 10);
+}
+
+function previousWeekKey(value = Date.now()) {
+  return weekKey(weekStart(value).getTime() - 7 * 86400000);
+}
+
+function weekLabel(value = Date.now()) {
+  const start = weekStart(value);
+  const end = new Date(start.getTime() + 6 * 86400000);
+  const format = (date) => new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(date);
+  return `${format(start)} - ${format(end)}`;
+}
+
 // 旧版本里已完成项留在列表（done: true），首次升级时统一迁入历史存档。
 function migrateDoneTodos() {
   let migrated = false;
@@ -287,6 +354,8 @@ function migrateDoneTodos() {
 }
 
 let todoHistory = loadTodoHistory();
+let todoProgress = loadTodoProgress();
+let weeklySummaries = loadWeeklySummaries();
 let todoView = 'active';
 migrateDoneTodos();
 let todoOrder = loadTodoOrder();
@@ -295,8 +364,18 @@ const todoSelections = Object.fromEntries(PRIORITIES.map((priority) => [priority
 const todoSelectionAnchors = Object.fromEntries(PRIORITIES.map((priority) => [priority, null]));
 let editingTodo = null;
 let editingProject = null; // { priority, id } 正在编辑项目名的待办
-let todoGroupView = false; // 待办面板按项目分组树
+let todoGroupView = loadTodoGroupView(); // 待办面板按项目分组树，默认开启
 let todoGroupCollapsed = new Set(); // `${priority}\u0000${project}` 折叠集合
+
+function loadTodoGroupView() {
+  try {
+    const stored = localStorage.getItem('notch-todo-group-view-v1');
+    // 未保存过选择时默认开启分组树；用户手动切换后记住上次选择。
+    return stored === null ? true : stored === '1' || stored === 'true';
+  } catch (error) {
+    return true;
+  }
+}
 
 function loadTodoCategoryNames() {
   try {
@@ -387,10 +466,10 @@ function todoItemHtml(priority, item) {
       : `<button class="todo-project-chip todo-project-add" type="button" data-action="edit-project" title="添加项目">+</button>`;
   const toggleLabel = item.done ? `恢复未完成：${safeText}` : `标记完成：${safeText}`;
   const battery = window.NotchDomain.todoTimeBattery(item, Date.now());
-  // 逾期项整条填满红色并只显示一个白色感叹号：剩余 0% 是「快到了」，
+  // 逾期项整条填满红色并显示「+时长」：剩余 0% 是「快到了」，
   // 逾期是「已经欠账」，两者不能长得一样。
   const batteryHtml = battery
-    ? `<span class="todo-battery" data-tone="${battery.tone}"${battery.overdue ? ' data-overdue="true" role="img"' : ''} title="${battery.label}" aria-label="${battery.label}"><i style="--battery:${battery.overdue ? 100 : battery.percent}%"></i><b>${battery.overdue ? '!' : `${battery.percent}%`}</b></span>`
+    ? `<span class="todo-battery" data-tone="${battery.tone}"${battery.overdue ? ' data-overdue="true"' : ''} title="${battery.label}" aria-label="${battery.label}"><i style="--battery:${battery.overdue ? 100 : battery.percent}%"></i><b>${battery.text}</b></span>`
     : '';
   const isEditing = editingTodo?.priority === priority && editingTodo?.id === item.id;
   const contentHtml = isEditing
@@ -401,6 +480,7 @@ function todoItemHtml(priority, item) {
       <button class="checkbox" type="button" data-action="toggle" aria-label="${toggleLabel}" aria-pressed="${item.done}">${checkSvg()}</button>
       ${projectChipHtml}
       ${contentHtml}
+      <button class="todo-progress-action" type="button" data-action="progress" aria-label="更新进度：${safeText}" title="更新本周进度">进度</button>
       <button class="delete" type="button" data-action="delete" aria-label="删除：${safeText}">×</button>
     </li>
   `;
@@ -515,6 +595,7 @@ function addTodo(priority, text, deadline) {
   const previousPositions = captureTodoPositions(priority);
   data[priority].push(item);
   saveData(data);
+  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoCreated(item, priority);
   renderList(priority, { previousPositions });
   updateCount(priority);
   flashItemClass(priority, item.id, 'enter');
@@ -538,6 +619,7 @@ function editTodo(priority, id, text, deadline) {
   const previousPositions = captureTodoPositions(priority);
   data[priority][index] = updated;
   saveData(data);
+  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoUpdated(updated, priority, ['text', 'deadline']);
   renderList(priority, { previousPositions, focusId: id, focusAction: 'edit' });
   return true;
 }
@@ -560,6 +642,7 @@ function toggleTodo(priority, id) {
   });
   saveData(data);
   saveTodoHistory();
+  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoCompleted(item, priority);
   renderList(priority, { previousPositions });
   updateCount(priority);
   updateTodoHistoryUI();
@@ -593,6 +676,7 @@ function deleteTodo(priority, id) {
   const nearbyItem = itemEl && (itemEl.nextElementSibling || itemEl.previousElementSibling);
   if (itemEl) itemEl.remove();
   saveData(data);
+  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoDeleted(id, removed.dingtalkTaskId);
   updateCount(priority);
   if (shouldRestoreFocus) {
     const nextFocus =
@@ -617,6 +701,86 @@ function deleteTodo(priority, id) {
       showStatusToast('已撤销删除');
     },
   });
+}
+
+/**
+ * 处理来自 NexusDesk Cloud 的远端待办变更
+ * 由 dingtalk-sync.js 在收到 WebSocket 消息时调用
+ */
+function handleRemoteTodoChange(event) {
+  if (!event || !event.todoId) return;
+  // 忽略自己发出的事件（避免循环）
+  if (event.source === 'desktop') return;
+
+  const { todoId, dingtalkTaskId, payload } = event;
+  // 在所有象限里找这条待办
+  let foundPriority = null;
+  let foundIndex = -1;
+  for (const prio of Object.keys(data)) {
+    const idx = (data[prio] || []).findIndex((t) => t.id === todoId || t.dingtalkTaskId === dingtalkTaskId);
+    if (idx >= 0) { foundPriority = prio; foundIndex = idx; break; }
+  }
+
+  switch (event.event) {
+    case 'todo.create': {
+      if (foundPriority) return; // 已存在，不重复创建
+      const priority = (payload && payload.priority) || (payload && payload.category) || 'P3';
+      if (!data[priority]) data[priority] = [];
+      const deadline = (payload && payload.dueTime) || new Date(Date.now() + 12 * 3600 * 1000).toISOString();
+      const item = window.NotchDomain.createTodo((payload && payload.text) || '同步待办', deadline, todoId, Date.now());
+      if (item) {
+        if (dingtalkTaskId) item.dingtalkTaskId = dingtalkTaskId;
+        if (payload && payload.project) item.project = payload.project;
+        data[priority].push(item);
+        saveData(data);
+        renderList(priority);
+        updateCount(priority);
+      }
+      break;
+    }
+    case 'todo.update': {
+      if (!foundPriority) return;
+      const previousPriority = foundPriority;
+      const requestedPriority = payload && payload.priority;
+      const nextPriority = PRIORITIES.includes(requestedPriority) ? requestedPriority : foundPriority;
+      const item = data[foundPriority][foundIndex];
+      if (nextPriority !== foundPriority) {
+        data[foundPriority].splice(foundIndex, 1);
+        if (!data[nextPriority]) data[nextPriority] = [];
+        data[nextPriority].push(item);
+        foundPriority = nextPriority;
+      }
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'text')) item.text = payload.text;
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'dueTime')) item.deadline = payload.dueTime;
+      if (payload && Object.prototype.hasOwnProperty.call(payload, 'project')) item.project = payload.project;
+      if (dingtalkTaskId) item.dingtalkTaskId = dingtalkTaskId;
+      item.dingtalkSyncedAt = Date.now();
+      saveData(data);
+      if (previousPriority !== foundPriority) {
+        renderList(previousPriority);
+        updateCount(previousPriority);
+      }
+      renderList(foundPriority);
+      updateCount(foundPriority);
+      break;
+    }
+    case 'todo.complete': {
+      if (!foundPriority) return;
+      const item = data[foundPriority][foundIndex];
+      if (item.done) return;
+      // 复用 toggleTodo 的完成逻辑
+      toggleTodo(foundPriority, item.id);
+      break;
+    }
+    case 'todo.delete': {
+      if (!foundPriority) return;
+      data[foundPriority].splice(foundIndex, 1);
+      saveData(data);
+      renderList(foundPriority);
+      updateCount(foundPriority);
+      break;
+    }
+  }
 }
 
 let isExpanded = false;
@@ -646,15 +810,11 @@ function waitForPanelMotion() {
       resolve();
     };
     const onEnd = (event) => {
-      if (
-        event.target === panel &&
-        event.propertyName === 'opacity' &&
-        event.pseudoElement === '::before'
-      ) {
+      if (event.target === panel && event.pseudoElement === '::before') {
         finish();
       }
     };
-    const timer = setTimeout(finish, PANEL_MOTION_FALLBACK_MS);
+    const timer = setTimeout(finish, 320);
     panel.addEventListener('transitionend', onEnd);
   });
 }
@@ -717,6 +877,7 @@ async function setMode(expanded) {
       setTimeout(() => {
         _justExpanded = false;
       }, OPENING_SETTLE_MS);
+      await defaultTabReady;
       const openingTab = window.NotchDomain.resolveDefaultPanelTab(defaultOpenTab, TABS);
       if (activeTab !== openingTab) await setActiveTab(openingTab);
       else applyTabDom(openingTab);
@@ -727,11 +888,8 @@ async function setMode(expanded) {
       // offsetWidth 只强制布局，不强制绘制；而 rAF 回调发生在绘制之前。
       // 必须等两帧、确认 .opening 的透明折叠条真的进了合成器，再让主进程放大窗口，
       // 否则放大时被钉在新原点上的仍是那条黑色折叠条（菜单栏黑块闪烁的成因）。
-      await nextAnimationFrame();
-      await nextAnimationFrame();
+      await new Promise(r => setTimeout(r, 150));
       await ipcSetMode('expanded');
-      await nextAnimationFrame();
-      await nextAnimationFrame();
       app.classList.remove('opening');
       app.classList.add('expanded');
       // 展开后面板从隐藏变为可见，tab 尺寸此时才可量，校准激活胶囊位置
@@ -744,7 +902,6 @@ async function setMode(expanded) {
       const motion = waitForPanelMotion();
       syncPanelAccessibility(false);
       // 隐私优先：不要把摄像头释放放在 rAF 之后，隐藏窗口可能暂停动画帧。
-      stopMirror();
       await ipcBeginCollapse();
       app.classList.add('closing');
       await nextAnimationFrame();
@@ -879,21 +1036,21 @@ if (window.notchAPI && typeof window.notchAPI.onMetricsChanged === 'function') {
 
 // ============ Tab 切换 ============
 const TAB_KEY = 'notch-active-tab';
-const ALL_TABS = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
+const ALL_TABS = ['weekly', 'todo', 'notes', 'links', 'credentials', 'clip', 'settings'];
 let TABS = ALL_TABS.filter((name) => name !== 'clip');
 let tabButtons = Array.from(document.querySelectorAll('.tab:not([hidden])'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 const tabIndicator = document.getElementById('tab-indicator');
 const collapseBtn = document.getElementById('collapse-btn');
 
-let activeTab = 'home';
-let defaultOpenTab = 'home';
+let activeTab = 'todo';
+let defaultOpenTab = 'todo';
+let defaultTabReady = Promise.resolve();
 
 function applyFeatureSettings(settings) {
-  const features = { ...(settings && settings.features || {}), home: true, settings: true };
+  const features = { ...(settings && settings.features || {}), settings: true };
   document.querySelectorAll('.tab[data-tab]').forEach((button) => {
-    const enabled = button.dataset.tab === 'home'
-      || button.dataset.tab === 'settings'
+    const enabled = button.dataset.tab === 'settings'
       || features[button.dataset.tab] !== false;
     button.hidden = !enabled;
     button.setAttribute('aria-hidden', String(!enabled));
@@ -906,12 +1063,12 @@ function applyFeatureSettings(settings) {
   if (tabButtons.length > 4) {
     tabButtons[Math.ceil(tabButtons.length / 2)]?.classList.add('tab-split-start');
   }
-  if (!TABS.includes(activeTab)) setActiveTab('home');
+  if (!TABS.includes(activeTab)) setActiveTab(TABS[0] || 'settings');
   requestAnimationFrame(positionIndicator);
 }
 
 if (window.notchAPI?.getAppSettings) {
-  window.notchAPI.getAppSettings().then(applyFeatureSettings).catch(() => {});
+  defaultTabReady = window.notchAPI.getAppSettings().then(applyFeatureSettings).catch(() => {});
   window.notchAPI.onAppSettingsChanged?.(applyFeatureSettings);
 }
 
@@ -960,7 +1117,7 @@ let tabBusy = false;
 let pendingTab = null;
 
 async function setActiveTab(name) {
-  if (!TABS.includes(name)) name = 'home';
+  if (!TABS.includes(name)) name = TABS[0] || 'settings';
   if (tabBusy) {
     pendingTab = name; // 补间中连点：记住最后目标，结束后追赶
     return;
@@ -971,7 +1128,6 @@ async function setActiveTab(name) {
   }
   tabBusy = true;
   activeTab = name;
-  if (name !== 'home') stopMirror();
   try {
     // 图片预加载等重活的调度策略：
     //   - 已展开态切 Tab：_justExpanded=false → 立即执行，保持即时响应
@@ -1124,12 +1280,11 @@ if (collapseBtn) {
 const topbarEl = document.querySelector('.topbar');
 if (topbarEl) {
   topbarEl.addEventListener('click', (e) => {
-    if (e.target.closest('.tabs, button, input')) return;
+    if (e.target.closest('.tabs, .todo-weekly-card, button, input')) return;
     e.stopPropagation();
     setMode(false);
   });
 }
-
 
 // 窗口失焦/聚焦：折叠态刘海在失焦时透明，避免遮挡其他窗口
 window.addEventListener('blur', () => document.getElementById('app')?.classList.add('inactive'));
@@ -1303,14 +1458,19 @@ function applyTodoEditorSelection(markManual = true) {
     saveData(data);
   } else {
     const trigger = document.querySelector(`.todo-deadline-trigger[data-deadline-priority="${priority}"]`);
-    if (!trigger) return false;
-    trigger.dataset.deadline = deadline;
-    trigger.dataset.deadlineSource = markManual ? 'manual' : (trigger.dataset.deadlineSource || 'default');
-    trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
-      day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-    }).format(new Date(deadline));
-    trigger.classList.add('selected');
-    trigger.classList.remove('invalid');
+    if (!trigger) {
+      // 象限内添加行已移除：把选择结果交还给调用方（统一添加面板）。
+      if (todoEditorContext.onPick) todoEditorContext.onPick(deadline);
+      else return false;
+    } else {
+      trigger.dataset.deadline = deadline;
+      trigger.dataset.deadlineSource = markManual ? 'manual' : (trigger.dataset.deadlineSource || 'default');
+      trigger.querySelector('span').textContent = new Intl.DateTimeFormat('zh-CN', {
+        day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(new Date(deadline));
+      trigger.classList.add('selected');
+      trigger.classList.remove('invalid');
+    }
   }
   return true;
 }
@@ -1324,7 +1484,7 @@ function openTodoEditor(priority, item = null, anchor = null) {
   const selectedDate = candidate && Number.isFinite(candidate.getTime())
     ? candidate
     : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30, 0, 0);
-  todoEditorContext = { priority, id: item && item.id || '', mode: item ? 'edit' : 'add' };
+  todoEditorContext = { priority, id: item && item.id || '', mode: item ? 'edit' : 'add', onPick: null };
   todoEditorYear = selectedDate.getFullYear();
   todoEditorMonthIndex = selectedDate.getMonth();
   todoEditorDay = selectedDate.getDate();
@@ -1338,13 +1498,21 @@ function openTodoEditor(priority, item = null, anchor = null) {
     const target = anchor || (item
       ? document.querySelector(`.todo-item[data-id="${CSS.escape(item.id)}"] .todo-inline-deadline`)
       : trigger);
-    const quadrant = target?.closest('.quadrant') || document.querySelector(`.quadrant[data-priority="${priority}"]`);
     document.body.appendChild(todoEditorBackdrop);
     todoEditorBackdrop.hidden = false;
-    todoEditorBackdrop.style.removeProperty('left');
-    todoEditorBackdrop.style.removeProperty('top');
-    todoEditorBackdrop.style.removeProperty('right');
-    todoEditorBackdrop.style.removeProperty('bottom');
+    const rect = target?.getBoundingClientRect();
+    if (rect && rect.width) {
+      const popoverWidth = 264;
+      const popoverHeight = 332;
+      const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - popoverWidth - 8));
+      let top = rect.top - popoverHeight - 8;
+      if (top < 8) top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - popoverHeight - 8));
+      todoEditorBackdrop.style.left = `${Math.round(left)}px`;
+      todoEditorBackdrop.style.top = `${Math.round(top)}px`;
+    } else {
+      todoEditorBackdrop.style.removeProperty('left');
+      todoEditorBackdrop.style.removeProperty('top');
+    }
   }
   applyTodoEditorSelection(false);
 }
@@ -1385,6 +1553,402 @@ document.getElementById('todo-editor-confirm')?.addEventListener('click', () => 
   if (applyTodoEditorSelection(true)) closeTodoEditor();
 });
 document.getElementById('todo-editor-cancel')?.addEventListener('click', () => closeTodoEditor());
+
+/* ============ 统一添加待办 ============ */
+const todoAddBackdrop = document.getElementById('todo-add-backdrop');
+const todoAddInput = document.getElementById('todo-add-input');
+const todoAddCategories = document.getElementById('todo-add-categories');
+const todoAddTime = document.getElementById('todo-add-time');
+const todoAddCreate = document.getElementById('todo-add-create');
+const todoAddState = { priority: 'P0', deadline: null, source: 'default' };
+
+function formatTodoAddTime(value) {
+  const date = new Date(value);
+  const now = new Date();
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  const time = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+  return `${sameDay ? '今天' : `${date.getMonth() + 1}月${date.getDate()}日`} ${time}`;
+}
+
+function renderTodoAddCategories() {
+  if (!todoAddCategories) return;
+  if (!todoAddCategories.children.length) {
+    PRIORITIES.forEach((priority) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'todo-add-cat';
+      button.dataset.priority = priority;
+      button.setAttribute('role', 'radio');
+      const dot = document.createElement('span');
+      dot.className = `dot dot-${priority.toLowerCase()}`;
+      button.append(dot, document.createTextNode(''));
+      button.addEventListener('click', () => {
+        todoAddState.priority = priority;
+        renderTodoAddCategories();
+      });
+      todoAddCategories.append(button);
+    });
+  }
+  todoAddCategories.querySelectorAll('[data-priority]').forEach((button) => {
+    const active = todoAddState.priority === button.dataset.priority;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-checked', String(active));
+    button.lastChild.nodeValue = todoCategoryNames[button.dataset.priority] || button.dataset.priority;
+  });
+}
+
+function renderTodoAddTime() {
+  if (!todoAddTime) return;
+  if (!todoAddState.deadline) {
+    todoAddTime.textContent = '选择截止时间';
+    todoAddTime.classList.remove('selected');
+    return;
+  }
+  todoAddTime.textContent = formatTodoAddTime(todoAddState.deadline);
+  todoAddTime.dataset.deadline = todoAddState.deadline;
+  todoAddTime.classList.add('selected');
+}
+
+function openTodoAddPopover() {
+  todoAddState.priority = 'P0';
+  const now = new Date();
+  const defaultDeadline = window.NotchDomain.defaultTodoDeadline(now);
+  todoAddState.deadline = defaultDeadline || new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 30).toISOString();
+  todoAddState.source = 'default';
+  if (todoAddInput) todoAddInput.value = '';
+  renderTodoAddCategories();
+  renderTodoAddTime();
+  if (todoAddBackdrop) {
+    todoAddBackdrop.hidden = false;
+    setTimeout(() => todoAddInput?.focus({ preventScroll: true }), 0);
+  }
+}
+
+function closeTodoAddPopover() {
+  if (todoAddBackdrop) todoAddBackdrop.hidden = true;
+}
+
+function submitTodoAdd() {
+  if (!todoAddInput) return;
+  const text = todoAddInput.value.trim();
+  if (!text) {
+    todoAddInput.focus({ preventScroll: true });
+    return;
+  }
+  // 未手选时间时，创建前刷新为“今天 23:30”，避免跨天或入睡后过期。
+  let deadline = todoAddState.deadline;
+  if (todoAddState.source !== 'manual') {
+    const refreshed = window.NotchDomain.defaultTodoDeadline(new Date());
+    if (refreshed) deadline = refreshed;
+  }
+  if (!addTodo(todoAddState.priority, text, deadline)) {
+    showStatusToast('截止时间格式不正确');
+    return;
+  }
+  closeTodoAddPopover();
+  showStatusToast(`已添加到「${todoCategoryNames[todoAddState.priority] || todoAddState.priority}」`);
+}
+
+document.getElementById('todo-add-open')?.addEventListener('click', openTodoAddPopover);
+document.getElementById('todo-add-close')?.addEventListener('click', closeTodoAddPopover);
+document.getElementById('todo-add-cancel')?.addEventListener('click', closeTodoAddPopover);
+todoAddBackdrop?.addEventListener('click', (event) => {
+  if (event.target === todoAddBackdrop) closeTodoAddPopover();
+});
+todoAddCreate?.addEventListener('click', submitTodoAdd);
+todoAddInput?.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  if (e.repeat) return;
+  submitTodoAdd();
+});
+todoAddTime?.addEventListener('click', () => {
+  openTodoEditor(todoAddState.priority, null, todoAddTime);
+  if (todoEditorContext) {
+    todoEditorContext.onPick = (deadline) => {
+      todoAddState.deadline = deadline;
+      todoAddState.source = 'manual';
+      renderTodoAddTime();
+    };
+  }
+});
+
+const todoProgressBackdrop = document.getElementById('todo-progress-backdrop');
+const todoProgressTitle = document.getElementById('todo-progress-title');
+const todoProgressStatus = document.getElementById('todo-progress-status');
+const todoProgressText = document.getElementById('todo-progress-text');
+const todoProgressNext = document.getElementById('todo-progress-next');
+const todoProgressSave = document.getElementById('todo-progress-save');
+let todoProgressContext = null;
+
+function progressRecord(priority, id, key = weekKey()) {
+  return todoProgress[key]?.[id] || { priority, status: '未开始', progress: '', nextWeek: '' };
+}
+
+function openTodoProgress(priority, id) {
+  const todo = (data[priority] || []).find((item) => item.id === id);
+  if (!todo || !todoProgressBackdrop) return;
+  todoProgressContext = { priority, id };
+  const record = progressRecord(priority, id);
+  if (todoProgressTitle) todoProgressTitle.textContent = todo.text;
+  if (todoProgressStatus) todoProgressStatus.value = record.status || '未开始';
+  if (todoProgressText) todoProgressText.value = record.progress || '';
+  if (todoProgressNext) todoProgressNext.value = record.nextWeek || '';
+  todoProgressBackdrop.hidden = false;
+  todoProgressText?.focus();
+}
+
+function closeTodoProgress() {
+  if (todoProgressBackdrop) todoProgressBackdrop.hidden = true;
+  todoProgressContext = null;
+}
+
+function saveTodoProgressRecord() {
+  if (!todoProgressContext) return;
+  const { priority, id } = todoProgressContext;
+  const key = weekKey();
+  if (!todoProgress[key]) todoProgress[key] = {};
+  todoProgress[key][id] = {
+    priority,
+    status: todoProgressStatus?.value || '未开始',
+    progress: String(todoProgressText?.value || '').trim().slice(0, 1200),
+    nextWeek: String(todoProgressNext?.value || '').trim().slice(0, 1200),
+    updatedAt: Date.now(),
+  };
+  saveTodoProgress();
+  closeTodoProgress();
+  showStatusToast('本周进度已保存');
+}
+
+todoProgressSave?.addEventListener('click', saveTodoProgressRecord);
+document.getElementById('todo-progress-cancel')?.addEventListener('click', closeTodoProgress);
+document.getElementById('todo-progress-cancel-bottom')?.addEventListener('click', closeTodoProgress);
+todoProgressBackdrop?.addEventListener('click', (event) => {
+  if (event.target === todoProgressBackdrop) closeTodoProgress();
+});
+
+function weeklyTodoContext() {
+  const key = weekKey();
+  const current = PRIORITIES.flatMap((priority) => (data[priority] || []).map((item) => ({
+    id: item.id,
+    text: item.text,
+    priority,
+    project: item.project || '',
+    deadline: item.deadline || '',
+    status: todoProgress[key]?.[item.id]?.status || '未开始',
+    progress: todoProgress[key]?.[item.id]?.progress || '',
+    nextWeek: todoProgress[key]?.[item.id]?.nextWeek || '',
+  })));
+  const completed = todoHistory
+    .filter((item) => weekKey(item.completedAt) === key)
+    .map((item) => ({
+      id: item.id,
+      text: item.text,
+      priority: item.priority,
+      project: item.project || '',
+      status: '已完成',
+      progress: todoProgress[key]?.[item.id]?.progress || '',
+    }));
+  return { current, completed };
+}
+
+let weeklySelectedKey = null;
+const DEFAULT_WEEKLY_PROMPT = '你是个人工作复盘助手。结合上周总结和本周待办，生成简洁、具体的中文周报。只返回 JSON：{"progress":"本周进展","status":"整体进度","nextWeek":"下周待办"}。每个字段使用 Markdown，避免空泛表扬。';
+
+function renderWeeklySummary() {
+  const key = weeklySelectedKey || weekKey();
+  weeklySelectedKey = key;
+  const summary = weeklySummaries[key];
+  const fallbackLabel = weekLabel(new Date(`${key}T00:00:00`));
+  const title = document.getElementById('weekly-title');
+  const meta = document.getElementById('weekly-meta');
+  const homeTitle = document.getElementById('todo-weekly-title');
+  const homeMeta = document.getElementById('todo-weekly-meta');
+  if (title) title.textContent = `本周复盘 · ${summary && summary.week ? summary.week : fallbackLabel}`;
+  if (meta) meta.textContent = summary
+    ? `已保存 · ${new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(summary.updatedAt || Date.now()))}`
+    : '会结合上周总结和本周进度，生成本周进展、整体进度和下周待办。';
+  const fields = [
+    ['weekly-progress', summary && summary.progress],
+    ['weekly-status', summary && summary.status],
+    ['weekly-next', summary && summary.nextWeek],
+  ];
+  fields.forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    element.replaceChildren();
+    if (!value) {
+      element.textContent = '暂无记录';
+      return;
+    }
+    element.append(buildMarkdownPreview(value));
+  });
+  if (homeTitle) homeTitle.textContent = summary ? `本周复盘 · ${summary.week || fallbackLabel}` : '本周复盘';
+  if (homeMeta) homeMeta.textContent = summary
+    ? `已保存 · ${new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(summary.updatedAt || Date.now()))}`
+    : '会结合上周总结，生成本周进展、整体进度和下周待办。';
+  const homeResult = document.getElementById('todo-weekly-result');
+  if (homeResult) homeResult.hidden = !summary;
+  const homeFields = [
+    ['todo-weekly-progress', summary && summary.progress],
+    ['todo-weekly-status', summary && summary.status],
+    ['todo-weekly-next', summary && summary.nextWeek],
+  ];
+  homeFields.forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (element) element.textContent = value || '暂无记录';
+  });
+  const brief = document.getElementById('home-weekly-brief');
+  if (brief) {
+    brief.replaceChildren();
+    const current = weeklySummaries[weekKey()];
+    if (current) {
+      [['本周进展', current.progress], ['整体进度', current.status], ['下周待办', current.nextWeek]].forEach(([label, value]) => {
+        const row = document.createElement('div');
+        row.className = 'weekly-brief-row';
+        const lb = document.createElement('span');
+        lb.textContent = label;
+        const tx = document.createElement('span');
+        tx.textContent = String(value || '暂无记录').slice(0, 80);
+        row.append(lb, tx);
+        brief.append(row);
+      });
+    } else {
+      const empty = document.createElement('div');
+      empty.className = 'weekly-brief-empty';
+      empty.textContent = '本周还没有周报，点击「查看完整周报」去生成。';
+      brief.append(empty);
+    }
+  }
+  renderWeeklyHistory(key);
+}
+
+function renderWeeklyHistory(selectedKey) {
+  const nav = document.getElementById('weekly-history');
+  if (!nav) return;
+  const keys = Object.keys(weeklySummaries).sort().reverse();
+  if (!keys.length) {
+    nav.hidden = true;
+    nav.replaceChildren();
+    return;
+  }
+  nav.hidden = false;
+  nav.replaceChildren();
+  const current = weekKey();
+  const ordered = keys.includes(current) ? keys : [current, ...keys];
+  ordered.forEach((key) => {
+    const summary = weeklySummaries[key];
+    const label = summary && summary.week ? summary.week : weekLabel(new Date(`${key}T00:00:00`));
+    const item = document.createElement('div');
+    item.className = 'weekly-history-item';
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'weekly-history-chip';
+    chip.textContent = label;
+    chip.setAttribute('aria-pressed', String(key === selectedKey));
+    chip.classList.toggle('active', key === selectedKey);
+    chip.addEventListener('click', () => {
+      weeklySelectedKey = key;
+      renderWeeklySummary();
+    });
+    item.append(chip);
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'weekly-history-remove';
+    remove.textContent = '×';
+    remove.setAttribute('aria-label', `删除 ${label} 周报`);
+    remove.addEventListener('click', (event) => {
+      event.stopPropagation();
+      delete weeklySummaries[key];
+      saveWeeklySummaries();
+      if (weeklySelectedKey === key) {
+        const remaining = Object.keys(weeklySummaries).sort().reverse();
+        weeklySelectedKey = remaining[0] || null;
+      }
+      renderWeeklySummary();
+    });
+    item.append(remove);
+    nav.append(item);
+  });
+}
+
+async function generateWeeklySummary() {
+  const button = document.getElementById('weekly-generate');
+  if (!window.notchAPI?.summarizeWeek || !button) return;
+  button.disabled = true;
+  const originalLabel = button.textContent;
+  button.textContent = '整理中…';
+  const meta = document.getElementById('weekly-meta');
+  if (meta) meta.textContent = '正在整理本周进展…';
+  const previous = weeklySummaries[previousWeekKey()];
+  const result = await window.notchAPI.summarizeWeek({
+    week: weekLabel(),
+    current: weeklyTodoContext(),
+    previousSummary: previous ? JSON.stringify(previous) : '',
+    userPrompt: (localStorage.getItem('notch-todo-weekly-prompt-v1') || DEFAULT_WEEKLY_PROMPT).trim(),
+  }).catch(() => ({ ok: false }));
+  button.disabled = false;
+  button.textContent = originalLabel;
+  if (!result?.ok) {
+    if (meta) meta.textContent = result?.error === 'not_configured'
+      ? '请先在设置中配置 AI 的 Base URL 和 API Key，模型会自动获取。'
+      : result?.error === 'model_not_found'
+        ? '无法自动获取模型，请检查 Base URL，或在设置中手动填写模型。'
+        : '生成失败，请检查 AI 配置和网络连接。';
+    return;
+  }
+  const key = weekKey();
+  weeklySummaries[key] = {
+    week: weekLabel(),
+    progress: result.progress,
+    status: result.status,
+    nextWeek: result.nextWeek,
+    updatedAt: Date.now(),
+  };
+  saveWeeklySummaries();
+  const homeResult = document.getElementById('todo-weekly-result');
+  if (homeResult) homeResult.hidden = false;
+  weeklySelectedKey = key;
+  renderWeeklySummary();
+}
+
+document.getElementById('weekly-generate')?.addEventListener('click', generateWeeklySummary);
+document.getElementById('todo-weekly-generate')?.addEventListener('click', generateWeeklySummary);
+document.getElementById('todo-weekly-close')?.addEventListener('click', () => {
+  const result = document.getElementById('todo-weekly-result');
+  if (result) result.hidden = true;
+});
+document.getElementById('todo-weekly-open')?.addEventListener('click', () => setActiveTab('weekly'));
+document.getElementById('home-weekly-open')?.addEventListener('click', () => setActiveTab('weekly'));
+const weeklyPromptInput = document.getElementById('weekly-prompt-input');
+if (weeklyPromptInput) weeklyPromptInput.value = localStorage.getItem('notch-todo-weekly-prompt-v1') || DEFAULT_WEEKLY_PROMPT;
+document.getElementById('weekly-prompt-toggle')?.addEventListener('click', () => {
+  const box = document.getElementById('weekly-prompt-box');
+  if (!box) return;
+  box.hidden = !box.hidden;
+  if (!box.hidden) document.getElementById('weekly-prompt-input')?.focus();
+});
+document.getElementById('weekly-prompt-save')?.addEventListener('click', () => {
+  const input = document.getElementById('weekly-prompt-input');
+  const box = document.getElementById('weekly-prompt-box');
+  if (!input || !box) return;
+  const value = input.value.trim();
+  if (value) localStorage.setItem('notch-todo-weekly-prompt-v1', value);
+  else localStorage.removeItem('notch-todo-weekly-prompt-v1');
+  box.hidden = true;
+});
+document.getElementById('weekly-prompt-reset')?.addEventListener('click', () => {
+  const input = document.getElementById('weekly-prompt-input');
+  const box = document.getElementById('weekly-prompt-box');
+  if (input) input.value = DEFAULT_WEEKLY_PROMPT;
+  localStorage.removeItem('notch-todo-weekly-prompt-v1');
+  if (box) box.hidden = true;
+});
+// 初始渲染延后到同步流结束：buildMarkdownPreview 依赖的常量（NOTE_FENCE_RE 等）在文件后部定义，
+// 立即调用会触发 TDZ ReferenceError，导致整个渲染脚本中断。
+setTimeout(() => renderWeeklySummary(), 0);
 
 function applyDefaultTodoDeadline(trigger, now = new Date()) {
   if (!trigger || (trigger.dataset.deadline && trigger.dataset.deadlineSource !== 'default')) return;
@@ -1495,6 +2059,8 @@ PRIORITIES.forEach((priority) => {
       editTodo(priority, id, name, todo.deadline);
     } else if (action === 'delete') {
       deleteTodo(priority, id);
+    } else if (action === 'progress') {
+      openTodoProgress(priority, id);
     } else if (action === 'edit-project') {
       editingProject = { priority, id };
       renderList(priority);
@@ -1534,6 +2100,7 @@ PRIORITIES.forEach((priority) => {
         if (value) list2[idx].project = value;
         else delete list2[idx].project;
         saveData(data);
+        window.NexusDeskSync?.reportTodoUpdated(list2[idx], editingProject.priority);
         // 原位替换 chip，不重建整行：避免打断进行中的长按拖拽
         const slot = itemEl.querySelector('.todo-project-chip, .todo-project-add, .todo-project-input');
         if (slot) {
@@ -1657,13 +2224,9 @@ function applyTodoMove(fromPriority, id, target) {
   if (fromPriority !== toPriority && todoOrder[fromPriority]) {
     todoOrder[fromPriority] = todoOrder[fromPriority].filter((other) => other !== id);
   }
-  // 跨列拖入且仍未设项目时，归入目标列表出现最多的项目，方便周末归纳
-  if (fromPriority !== toPriority && !item.project) {
-    const dominant = window.NotchDomain.dominantProject(data[toPriority] || []);
-    if (dominant) item.project = dominant;
-  }
   saveData(data);
   saveTodoOrder();
+  window.NexusDeskSync?.reportTodoUpdated(item, toPriority);
   return true;
 }
 
@@ -1748,7 +2311,6 @@ document.addEventListener('pointerup', (event) => {
   });
   showStatusToast(fromPriority === target.priority ? '待办顺序已更新' : '待办已移动');
 });
-
 
 // ============ 折叠态点击穿透：黑条可点，黑条旁穿透到下方应用 ============
 // 主进程在折叠态默认整体穿透（forward 转发 mousemove），这里按鼠标是否落在黑条上
@@ -2915,473 +3477,6 @@ if (notePreview) {
   });
 }
 
-// ============ 首页 · 自适应 Bento 布局（长按换位 + 迷你/小/中/大组件） ============
-const HOME_ORDER_KEY = 'notch-home-order-v3';
-const HOME_SIZES_KEY = 'notch-home-widget-sizes-v2';
-const HOME_HIDDEN_MODULES_KEY = 'notch-home-hidden-modules-v1';
-const HOME_MODULE_REGISTRY = ['music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands'];
-const unavailableHomeModules = window.NotchPlatform.capabilities(window.notchAPI?.platform || 'darwin').unavailableHomeModules;
-const effectiveHomeHidden = (hidden) => window.NotchPlatform.effectiveHiddenModules(hidden, HOME_MODULE_REGISTRY, unavailableHomeModules);
-const HOME_ORDER_DEFAULTS = ['music', 'pomodoro', 'windows', 'recorder', 'mirror', 'note', 'commands'];
-const HOME_SIZE_DEFAULTS = {
-  music: 'medium',
-  windows: 'large',
-  recorder: 'small',
-  mirror: 'medium',
-  note: 'medium',
-  commands: 'mini',
-  pomodoro: 'mini',
-};
-const HOME_SIZE_LABELS = { mini: '迷你', small: '小', medium: '中', large: '大' };
-const homeBento = document.getElementById('home-bento');
-const homeTiles = homeBento
-  ? Array.from(homeBento.querySelectorAll('[data-home-module]'))
-  : [];
-
-function loadHomeOrder() {
-  try {
-    const rawSaved = JSON.parse(localStorage.getItem(HOME_ORDER_KEY) || 'null');
-    const saved = Array.isArray(rawSaved)
-      ? rawSaved.map((id) => id === 'character' ? 'music' : id)
-      : rawSaved;
-    if (
-      Array.isArray(saved)
-      && saved.length === HOME_ORDER_DEFAULTS.length
-      && new Set(saved).size === HOME_ORDER_DEFAULTS.length
-      && saved.every((id) => HOME_ORDER_DEFAULTS.includes(id))
-    ) return saved;
-
-    // 从旧固定槽位布局平滑迁移；原时钟 / 人物位置由音乐组件接管。
-    const legacy = JSON.parse(localStorage.getItem('notch-home-layout-v2') || 'null');
-    const legacySlots = ['tall-left', 'small-top', 'medium-top', 'square-top', 'tall-right', 'wide-bottom'];
-    if (legacy && typeof legacy === 'object') {
-      const migrated = Object.entries(legacy)
-        .sort((a, b) => legacySlots.indexOf(a[1]) - legacySlots.indexOf(b[1]))
-        .map(([id]) => id === 'clock' || id === 'character' ? 'music' : id)
-        .filter((id) => HOME_ORDER_DEFAULTS.includes(id));
-      if (migrated.length === HOME_ORDER_DEFAULTS.length && new Set(migrated).size === migrated.length) {
-        return migrated;
-      }
-    }
-  } catch (error) {
-    // 使用默认顺序。
-  }
-  return [...HOME_ORDER_DEFAULTS];
-}
-
-function loadHomeSizes() {
-  try {
-    return window.NotchDomain.normalizeHomeWidgetSizes(
-      JSON.parse(localStorage.getItem(HOME_SIZES_KEY) || 'null'),
-      HOME_SIZE_DEFAULTS,
-      '',
-      48
-    );
-  } catch (error) {
-    return { ...HOME_SIZE_DEFAULTS };
-  }
-}
-
-function loadHiddenHomeModules() {
-  try {
-    const rawText = localStorage.getItem(HOME_HIDDEN_MODULES_KEY);
-    if (rawText === null) return { hiddenIds: [], needsRepair: false };
-    const parsed = JSON.parse(rawText);
-    const hiddenIds = window.NotchDomain.normalizeHiddenHomeModules(parsed, HOME_MODULE_REGISTRY);
-    return {
-      hiddenIds,
-      needsRepair: JSON.stringify(parsed) !== JSON.stringify(hiddenIds),
-    };
-  } catch (error) {
-    return { hiddenIds: [], needsRepair: true };
-  }
-}
-
-let homeOrder = loadHomeOrder();
-let homeSizes = loadHomeSizes();
-const loadedHomeVisibility = loadHiddenHomeModules();
-let hiddenHomeModules = loadedHomeVisibility.hiddenIds;
-let homeVisibilityPersisted = true;
-let homeLayoutReadOnly = false;
-let homeLayoutMotionGeneration = 0;
-let homeLayoutMotionAnimations = [];
-const HOME_LAYOUT_MOTION_MS = 560;
-const HOME_LAYOUT_MOTION_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)';
-
-function saveHomeLayout() {
-  try {
-    localStorage.setItem(HOME_ORDER_KEY, JSON.stringify(homeOrder));
-    localStorage.setItem(HOME_SIZES_KEY, JSON.stringify(homeSizes));
-  } catch (error) {
-    // LocalStorage 不可用时仍保留当前会话内的布局。
-  }
-}
-
-function saveHiddenHomeModules() {
-  try {
-    localStorage.setItem(HOME_HIDDEN_MODULES_KEY, JSON.stringify(hiddenHomeModules));
-    homeVisibilityPersisted = true;
-    return true;
-  } catch (error) {
-    homeVisibilityPersisted = false;
-    return false;
-  }
-}
-
-if (loadedHomeVisibility.needsRepair) saveHiddenHomeModules();
-
-function resolveValidatedHomeLayout(hiddenIds, order = homeOrder, sizes = homeSizes) {
-  hiddenIds = effectiveHomeHidden(hiddenIds);
-  const visibleIds = HOME_MODULE_REGISTRY.filter((id) => !hiddenIds.includes(id));
-  const layout = window.NotchDomain.resolveHomeWidgetLayout(order, sizes, hiddenIds, 12, 4);
-  return window.NotchDomain.validateHomeWidgetLayout(layout, visibleIds, 12, 4)
-    ? layout
-    : null;
-}
-
-function cancelHomeLayoutMotion() {
-  homeLayoutMotionGeneration += 1;
-  homeLayoutMotionAnimations.forEach((animation) => animation.cancel());
-  homeLayoutMotionAnimations = [];
-  homeBento?.classList.remove('layout-motion-active');
-}
-
-function captureHomeLayoutVisualState() {
-  if (!homeBento) return null;
-  const surface = homeBento.getBoundingClientRect();
-  if (!surface.width || !surface.height) return null;
-  const tiles = new Map();
-  homeTiles.forEach((tile) => {
-    if (tile.hidden) return;
-    const rect = tile.getBoundingClientRect();
-    if (!rect.width || !rect.height) return;
-    tiles.set(tile.dataset.homeModule, {
-      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-    });
-  });
-  return { surface: { left: surface.left, top: surface.top }, tiles };
-}
-
-function animateCommittedHomeLayout(reason, beforeState) {
-  if (!homeBento || !beforeState || reason === 'initial' || reason === 'rollback'
-    || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const generation = homeLayoutMotionGeneration;
-  const finalTiles = new Map();
-  homeTiles.forEach((tile) => {
-    if (tile.hidden) return;
-    const rect = tile.getBoundingClientRect();
-    if (rect.width && rect.height) finalTiles.set(tile.dataset.homeModule, { tile, rect });
-  });
-  homeBento.classList.add('layout-motion-active');
-
-  finalTiles.forEach(({ tile, rect }, moduleId) => {
-    const previous = beforeState.tiles.get(moduleId);
-    const dx = previous ? previous.rect.left - rect.left : 0;
-    const dy = previous ? previous.rect.top - rect.top : 0;
-    const scaleX = previous ? previous.rect.width / Math.max(1, rect.width) : 1;
-    const scaleY = previous ? previous.rect.height / Math.max(1, rect.height) : 1;
-    const moved = Math.abs(dx) >= 0.5 || Math.abs(dy) >= 0.5;
-    const resized = Math.abs(scaleX - 1) >= 0.01 || Math.abs(scaleY - 1) >= 0.01;
-    if (previous && !moved && !resized) return;
-    const animation = tile.animate(
-      previous
-        ? [
-          { opacity: 1, transform: `translate(${dx}px, ${dy}px) scale(${scaleX}, ${scaleY})` },
-          { opacity: 1, transform: 'translate(0, 0) scale(1, 1)' },
-        ]
-        : [
-          { opacity: 0.72, transform: 'translateY(8px) scale(0.98)' },
-          { opacity: 1, transform: 'translateY(0) scale(1)' },
-        ],
-      { duration: HOME_LAYOUT_MOTION_MS, easing: HOME_LAYOUT_MOTION_EASING }
-    );
-    homeLayoutMotionAnimations.push(animation);
-  });
-
-  Promise.allSettled(homeLayoutMotionAnimations.map((animation) => animation.finished))
-    .then(() => {
-      if (generation !== homeLayoutMotionGeneration) return;
-      homeLayoutMotionAnimations = [];
-      homeBento.classList.remove('layout-motion-active');
-    });
-}
-
-function applyHomeLayout(layout, { reason = 'initial' } = {}) {
-  if (!homeBento || !layout) throw new Error('A validated homepage layout is required.');
-  cancelHomeLayoutMotion();
-  const beforeState = reason === 'initial' || reason === 'rollback'
-    ? null
-    : captureHomeLayoutVisualState();
-  const automaticLayout = !homeLayoutReadOnly && effectiveHomeHidden(hiddenHomeModules).length > 0;
-  homeBento.dataset.layoutMode = homeLayoutReadOnly ? 'safe' : automaticLayout ? 'automatic' : 'preferred';
-  homeTiles.forEach((tile) => {
-    const moduleId = tile.dataset.homeModule;
-    const orderIndex = Math.max(0, homeOrder.indexOf(moduleId));
-    const size = homeSizes[moduleId] || HOME_SIZE_DEFAULTS[moduleId];
-    const placement = layout.placements[moduleId];
-    tile.style.order = String(orderIndex);
-    tile.dataset.widgetSize = size;
-    tile.style.setProperty('--bento-index', String(orderIndex));
-    tile.hidden = !placement;
-    tile.setAttribute('aria-hidden', String(!placement));
-    if (placement) {
-      tile.dataset.layoutVariant = layout.variants[moduleId];
-      tile.dataset.layoutColumn = String(placement.column);
-      tile.dataset.layoutRow = String(placement.row);
-      tile.dataset.layoutWidth = String(placement.width);
-      tile.dataset.layoutHeight = String(placement.height);
-      tile.style.gridColumn = `${placement.column + 1} / span ${placement.width}`;
-      tile.style.gridRow = `${placement.row + 1} / span ${placement.height}`;
-    } else {
-      delete tile.dataset.layoutVariant;
-      delete tile.dataset.layoutColumn;
-      delete tile.dataset.layoutRow;
-      delete tile.dataset.layoutWidth;
-      delete tile.dataset.layoutHeight;
-      tile.style.removeProperty('grid-column');
-      tile.style.removeProperty('grid-row');
-    }
-    const sizeButton = tile.querySelector('[data-widget-size-cycle]');
-    if (sizeButton) {
-      sizeButton.dataset.currentSize = size;
-      sizeButton.setAttribute('aria-label', `${HOME_SIZE_LABELS[size]}组件，点击切换尺寸`);
-      sizeButton.title = `组件尺寸：${HOME_SIZE_LABELS[size]}`;
-      sizeButton.hidden = automaticLayout || homeLayoutReadOnly;
-      sizeButton.disabled = automaticLayout || homeLayoutReadOnly;
-      sizeButton.tabIndex = automaticLayout || homeLayoutReadOnly ? -1 : 0;
-    }
-  });
-  animateCommittedHomeLayout(reason, beforeState);
-}
-
-homeTiles.forEach((tile) => {
-  const sizeButton = document.createElement('button');
-  sizeButton.type = 'button';
-  sizeButton.className = 'widget-size-control motion-icon';
-  sizeButton.dataset.widgetSizeCycle = tile.dataset.homeModule;
-  sizeButton.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>';
-  tile.appendChild(sizeButton);
-});
-
-const homeModuleIds = new Set(homeTiles.map((tile) => tile.dataset.homeModule));
-if (homeTiles.length !== HOME_MODULE_REGISTRY.length
-  || homeModuleIds.size !== HOME_MODULE_REGISTRY.length
-  || !HOME_MODULE_REGISTRY.every((id) => homeModuleIds.has(id))) {
-  throw new Error('Homepage module registry does not match the rendered tiles.');
-}
-
-let initialHomeLayout = resolveValidatedHomeLayout(hiddenHomeModules);
-if (!initialHomeLayout) {
-  initialHomeLayout = resolveValidatedHomeLayout([], HOME_ORDER_DEFAULTS, HOME_SIZE_DEFAULTS);
-  homeLayoutReadOnly = true;
-  console.error('Homepage layout validation failed; using read-only defaults.');
-}
-if (!initialHomeLayout) throw new Error('Default homepage layout validation failed.');
-applyHomeLayout(initialHomeLayout, { reason: 'initial' });
-
-function visibilitySnapshot() {
-  const effectiveHiddenIds = effectiveHomeHidden(homeLayoutReadOnly ? [] : hiddenHomeModules);
-  return {
-    hiddenIds: [...effectiveHiddenIds],
-    visibleIds: HOME_MODULE_REGISTRY.filter((id) => !effectiveHiddenIds.includes(id)),
-    storedHiddenIds: [...hiddenHomeModules],
-    automaticLayout: !homeLayoutReadOnly && effectiveHiddenIds.length > 0,
-    unavailableIds: [...unavailableHomeModules],
-    readOnly: homeLayoutReadOnly,
-    persisted: homeVisibilityPersisted,
-  };
-}
-
-function setHomeModuleVisible(moduleId, visible) {
-  const current = [...hiddenHomeModules];
-  if (unavailableHomeModules.includes(moduleId)) return { ok: false, changed: false, error: 'unsupported', hiddenIds: current, persisted: homeVisibilityPersisted };
-  const currentlyVisible = visibilitySnapshot().visibleIds;
-  if (!visible && currentlyVisible.includes(moduleId) && currentlyVisible.length === 1) {
-    return { ok: false, changed: false, error: 'at_least_one_required', hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  if (homeLayoutReadOnly) {
-    return { ok: false, changed: false, error: 'layout_read_only', hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  const next = window.NotchDomain.updateHomeModuleVisibility(
-    current,
-    HOME_MODULE_REGISTRY,
-    moduleId,
-    visible
-  );
-  if (!next.ok) return { ...next, changed: false, persisted: homeVisibilityPersisted };
-  const changed = JSON.stringify(next.hiddenIds) !== JSON.stringify(current);
-  if (!changed) {
-    return { ok: true, changed: false, hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  if (moduleId === 'recorder' && visible === false
-    && window.NotchWorkspace?.isRecordingActive?.()) {
-    return { ok: false, changed: false, error: 'recording_active', hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  const layout = resolveValidatedHomeLayout(next.hiddenIds);
-  const currentLayout = resolveValidatedHomeLayout(current);
-  if (!layout || !currentLayout) {
-    return { ok: false, changed: false, error: 'layout_invalid', hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  if (moduleId === 'mirror' && visible === false) stopMirror();
-  try {
-    const activeElement = document.activeElement;
-    const changingTile = homeTiles.find((tile) => tile.dataset.homeModule === moduleId);
-    if (visible === false && changingTile?.contains(activeElement)) activeElement.blur();
-    hiddenHomeModules = next.hiddenIds;
-    applyHomeLayout(layout, { reason: 'visibility' });
-  } catch (error) {
-    hiddenHomeModules = current;
-    try { applyHomeLayout(currentLayout, { reason: 'rollback' }); } catch (rollbackError) {}
-    return { ok: false, changed: false, error: 'dom_apply_failed', hiddenIds: current, persisted: homeVisibilityPersisted };
-  }
-  const persisted = saveHiddenHomeModules();
-  const detail = visibilitySnapshot();
-  document.dispatchEvent(new CustomEvent('notch:home-modules-changed', { detail }));
-  return { ok: true, changed: true, hiddenIds: [...hiddenHomeModules], persisted };
-}
-
-window.NotchHome = Object.freeze({
-  getVisibility: visibilitySnapshot,
-  isVisible: (moduleId) => visibilitySnapshot().visibleIds.includes(String(moduleId || '')),
-  setModuleVisible: setHomeModuleVisible,
-});
-
-document.dispatchEvent(new CustomEvent('notch:home-modules-changed', {
-  detail: visibilitySnapshot(),
-}));
-if (homeLayoutReadOnly) document.dispatchEvent(new CustomEvent('notch:home-layout-error'));
-
-if (homeBento) {
-  let pendingLongPress = null;
-  let dragState = null;
-  let suppressHomeClickUntil = 0;
-
-  const clearDropTarget = () => {
-    homeTiles.filter((tile) => !tile.hidden).forEach((tile) => tile.classList.remove('layout-drop-target'));
-  };
-
-  const finishHomeDrag = (event, cancelled = false) => {
-    if (pendingLongPress) clearTimeout(pendingLongPress.timer);
-    pendingLongPress = null;
-    if (!dragState) return;
-    const { tile, target, pointerId } = dragState;
-    if (tile.hasPointerCapture?.(pointerId)) tile.releasePointerCapture(pointerId);
-    tile.classList.remove('is-dragging', 'hit-test-off');
-    tile.style.removeProperty('--home-drag-x');
-    tile.style.removeProperty('--home-drag-y');
-    homeBento.classList.remove('layout-dragging');
-    clearDropTarget();
-    if (!cancelled && target && target !== tile) {
-      const sourceId = tile.dataset.homeModule;
-      const targetId = target.dataset.homeModule;
-      const sourceIndex = homeOrder.indexOf(sourceId);
-      const targetIndex = homeOrder.indexOf(targetId);
-      [homeOrder[sourceIndex], homeOrder[targetIndex]] = [homeOrder[targetIndex], homeOrder[sourceIndex]];
-      const layout = resolveValidatedHomeLayout(hiddenHomeModules);
-      if (layout) {
-        applyHomeLayout(layout, { reason: 'reorder' });
-        saveHomeLayout();
-        showStatusToast('首页布局已更新');
-      } else {
-        [homeOrder[sourceIndex], homeOrder[targetIndex]] = [homeOrder[targetIndex], homeOrder[sourceIndex]];
-        showStatusToast('布局未更新，请重试');
-      }
-    }
-    dragState = null;
-    suppressHomeClickUntil = Date.now() + 260;
-  };
-
-  homeBento.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0 || event.isPrimary === false) return;
-    const tile = event.target.closest('[data-home-module]');
-    if (!tile || tile.hidden || event.target.closest('button, input, textarea, select, a, audio, [contenteditable]')) return;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    pendingLongPress = {
-      tile,
-      startX,
-      startY,
-      pointerId: event.pointerId,
-      timer: setTimeout(() => {
-        if (!pendingLongPress) return;
-        tile.setPointerCapture?.(event.pointerId);
-        homeBento.classList.add('layout-dragging');
-        tile.classList.add('is-dragging');
-        dragState = {
-          tile,
-          target: null,
-          pointerId: event.pointerId,
-          startX,
-          startY,
-        };
-        pendingLongPress = null;
-        if (navigator.vibrate) navigator.vibrate(18);
-      }, 420),
-    };
-  });
-
-  homeBento.addEventListener('click', (event) => {
-    const sizeButton = event.target.closest('[data-widget-size-cycle]');
-    if (!sizeButton) return;
-    event.preventDefault();
-    event.stopPropagation();
-    if (effectiveHomeHidden(hiddenHomeModules).length > 0 || homeLayoutReadOnly) return;
-    const moduleId = sizeButton.dataset.widgetSizeCycle;
-    const sequence = ['mini', 'small', 'medium', 'large'];
-    const current = homeSizes[moduleId] || HOME_SIZE_DEFAULTS[moduleId];
-    const requested = sequence[(sequence.indexOf(current) + 1) % sequence.length];
-    homeSizes = window.NotchDomain.normalizeHomeWidgetSizes({
-      ...homeSizes,
-      [moduleId]: requested,
-    }, HOME_SIZE_DEFAULTS, moduleId, 48);
-    const layout = resolveValidatedHomeLayout(hiddenHomeModules);
-    if (layout) {
-      applyHomeLayout(layout, { reason: 'size' });
-      saveHomeLayout();
-      showStatusToast(`${HOME_SIZE_LABELS[homeSizes[moduleId]]}组件 · 其他模块已自适应`);
-    }
-  });
-
-  homeBento.addEventListener('pointermove', (event) => {
-    if (pendingLongPress) {
-      const moved = Math.hypot(
-        event.clientX - pendingLongPress.startX,
-        event.clientY - pendingLongPress.startY
-      );
-      if (moved > 8) {
-        clearTimeout(pendingLongPress.timer);
-        pendingLongPress = null;
-      }
-      return;
-    }
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    event.preventDefault();
-    const { tile, startX, startY } = dragState;
-    tile.style.setProperty('--home-drag-x', `${event.clientX - startX}px`);
-    tile.style.setProperty('--home-drag-y', `${event.clientY - startY}px`);
-    tile.classList.add('hit-test-off');
-    const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-home-module]');
-    tile.classList.remove('hit-test-off');
-    clearDropTarget();
-    dragState.target = hovered && !hovered.hidden && hovered !== tile && homeBento.contains(hovered) ? hovered : null;
-    dragState.target?.classList.add('layout-drop-target');
-  });
-
-  homeBento.addEventListener('pointerup', (event) => finishHomeDrag(event));
-  homeBento.addEventListener('pointercancel', (event) => finishHomeDrag(event, true));
-  homeBento.addEventListener('pointerleave', () => {
-    if (!dragState && pendingLongPress) {
-      clearTimeout(pendingLongPress.timer);
-      pendingLongPress = null;
-    }
-  });
-  homeBento.addEventListener('click', (event) => {
-    if (Date.now() >= suppressHomeClickUntil) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-  }, true);
-}
-
 // ============ 距离感应 Dock 悬浮 ============
 function bindDockSurface(surface, selector, maxScale = 1.14) {
   if (!surface) return;
@@ -3420,239 +3515,6 @@ function bindDockSurface(surface, selector, maxScale = 1.14) {
     bindDockSurface(surface, itemSelector, scale);
   });
 });
-
-// ============ 首页 · 人像镜面（局部水波折射） ============
-const homeMirror = document.querySelector('.home-mirror');
-const mirrorStage = document.getElementById('mirror-stage');
-const mirrorPhotos = Array.from(document.querySelectorAll('.mirror-photo'));
-
-function applyMirrorCover(dataUrl) {
-  if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) return;
-  mirrorPhotos.forEach((image) => { image.src = dataUrl; });
-}
-
-if (window.notchAPI && typeof window.notchAPI.getMirrorImage === 'function') {
-  window.notchAPI.getMirrorImage().then(applyMirrorCover).catch(() => {});
-}
-if (window.notchAPI && typeof window.notchAPI.onMirrorImageChanged === 'function') {
-  window.notchAPI.onMirrorImageChanged(applyMirrorCover);
-}
-const mirrorVideo = document.getElementById('mirror-video');
-const mirrorDisplacement = document.getElementById('mirror-displacement');
-const mirrorWaterCanvas = document.getElementById('mirror-water-canvas');
-const mirrorPixelReveal = document.getElementById('mirror-pixel-reveal');
-let mirrorLiquidFrame = null;
-let mirrorLiquidScale = 0;
-let mirrorLastPoint = null;
-let mirrorWaterFrame = null;
-let mirrorLastTrailAt = 0;
-let mirrorWaterRipples = [];
-let mirrorStream = null;
-let mirrorStarting = false;
-let mirrorZoom = 1;
-
-function replayMirrorPixelReveal() {
-  if (!mirrorPixelReveal || !homeMirror || activeTab !== 'home') return;
-  if (!mirrorPixelReveal.childElementCount) {
-    const fragment = document.createDocumentFragment();
-    for (let index = 0; index < 80; index++) {
-      const pixel = document.createElement('i');
-      const row = Math.floor(index / 10);
-      const column = index % 10;
-      pixel.style.setProperty('--pixel-delay', `${(row * 24 + column * 13 + ((row + column) % 3) * 17)}ms`);
-      fragment.appendChild(pixel);
-    }
-    mirrorPixelReveal.appendChild(fragment);
-  }
-  mirrorPixelReveal.classList.remove('revealing');
-  void mirrorPixelReveal.offsetWidth;
-  mirrorPixelReveal.classList.add('revealing');
-  setTimeout(() => mirrorPixelReveal.classList.remove('revealing'), 1120);
-}
-
-function resizeMirrorWaterCanvas() {
-  if (!mirrorWaterCanvas || !mirrorStage) return null;
-  const bounds = mirrorStage.getBoundingClientRect();
-  const dpr = Math.min(2, window.devicePixelRatio || 1);
-  const width = Math.max(1, Math.round(bounds.width * dpr));
-  const height = Math.max(1, Math.round(bounds.height * dpr));
-  if (mirrorWaterCanvas.width !== width || mirrorWaterCanvas.height !== height) {
-    mirrorWaterCanvas.width = width;
-    mirrorWaterCanvas.height = height;
-  }
-  return { bounds, dpr };
-}
-
-function animateMirrorWater(now) {
-  const metrics = resizeMirrorWaterCanvas();
-  const context = mirrorWaterCanvas?.getContext('2d');
-  if (!metrics || !context) {
-    mirrorWaterFrame = null;
-    return;
-  }
-  context.clearRect(0, 0, mirrorWaterCanvas.width, mirrorWaterCanvas.height);
-  mirrorWaterRipples = mirrorWaterRipples.filter((ripple) => now - ripple.startedAt < 1250);
-  context.save();
-  context.scale(metrics.dpr, metrics.dpr);
-  context.globalCompositeOperation = 'screen';
-  mirrorWaterRipples.forEach((ripple) => {
-    const progress = Math.min(1, (now - ripple.startedAt) / 1250);
-    const eased = 1 - (1 - progress) ** 3;
-    for (let ring = 0; ring < 3; ring++) {
-      const radius = 6 + eased * (34 + ripple.speed * 1.8) + ring * 7;
-      context.beginPath();
-      context.arc(ripple.x, ripple.y, radius, 0, Math.PI * 2);
-      context.strokeStyle = `rgba(190, 222, 255, ${Math.max(0, (1 - progress) * (0.17 - ring * 0.035))})`;
-      context.lineWidth = Math.max(0.65, 1.55 - progress);
-      context.stroke();
-    }
-  });
-  context.restore();
-  if (mirrorWaterRipples.length) mirrorWaterFrame = requestAnimationFrame(animateMirrorWater);
-  else mirrorWaterFrame = null;
-}
-
-function addMirrorWaterRipple(x, y, speed) {
-  mirrorWaterRipples.push({ x, y, speed: Math.min(18, speed), startedAt: performance.now() });
-  if (mirrorWaterRipples.length > 18) mirrorWaterRipples.shift();
-  if (!mirrorWaterFrame) mirrorWaterFrame = requestAnimationFrame(animateMirrorWater);
-}
-
-function setMirrorZoom(value) {
-  mirrorZoom = value;
-  mirrorStage?.style.setProperty('--mirror-zoom', String(mirrorZoom));
-}
-
-function stopMirror() {
-  if (mirrorStream) {
-    mirrorStream.getTracks().forEach((track) => track.stop());
-    mirrorStream = null;
-  }
-  if (mirrorVideo) {
-    mirrorVideo.pause();
-    mirrorVideo.srcObject = null;
-  }
-  mirrorStarting = false;
-  setMirrorZoom(1);
-  if (mirrorLiquidFrame) cancelAnimationFrame(mirrorLiquidFrame);
-  mirrorLiquidFrame = null;
-  mirrorLiquidScale = 0;
-  mirrorLastPoint = null;
-  mirrorWaterRipples = [];
-  if (mirrorWaterFrame) cancelAnimationFrame(mirrorWaterFrame);
-  mirrorWaterFrame = null;
-  const waterContext = mirrorWaterCanvas?.getContext('2d');
-  waterContext?.clearRect(0, 0, mirrorWaterCanvas.width, mirrorWaterCanvas.height);
-  mirrorDisplacement?.setAttribute('scale', '0');
-  homeMirror?.classList.remove('live', 'camera-starting', 'liquid-active', 'ripple-active');
-  mirrorStage?.setAttribute('aria-label', '打开实时镜子');
-  mirrorStage?.setAttribute('aria-pressed', 'false');
-  mirrorStage?.removeAttribute('aria-busy');
-}
-
-async function startMirror() {
-  if (mirrorStarting || mirrorStream || !mirrorVideo) return;
-  mirrorStarting = true;
-  homeMirror?.classList.add('camera-starting');
-  mirrorStage?.setAttribute('aria-busy', 'true');
-  try {
-    const permitted = !window.notchAPI || typeof window.notchAPI.ensureCamera !== 'function'
-      ? true
-      : await window.notchAPI.ensureCamera();
-    if (!permitted) throw new Error('camera_permission_denied');
-    if (!mirrorStarting || !isExpanded || activeTab !== 'home') return;
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: 'user',
-        width: { ideal: 1280 },
-        height: { ideal: 1280 },
-      },
-    });
-    if (!isExpanded || activeTab !== 'home' || !mirrorStarting) {
-      stream.getTracks().forEach((track) => track.stop());
-      return;
-    }
-    mirrorStream = stream;
-    mirrorVideo.srcObject = stream;
-    await mirrorVideo.play();
-    setMirrorZoom(1);
-    homeMirror?.classList.remove('liquid-active');
-    homeMirror?.classList.add('live');
-    mirrorStage?.setAttribute('aria-label', '关闭实时镜子');
-    mirrorStage?.setAttribute('aria-pressed', 'true');
-  } catch (error) {
-    stopMirror();
-    const denied = error && (
-      error.name === 'NotAllowedError' || error.message === 'camera_permission_denied'
-    );
-    showStatusToast(denied ? '需要摄像头权限才能打开镜子' : '暂时无法打开摄像头');
-  } finally {
-    mirrorStarting = false;
-    homeMirror?.classList.remove('camera-starting');
-    mirrorStage?.removeAttribute('aria-busy');
-  }
-}
-
-function animateMirrorLiquid() {
-  // 慢衰减保留轨迹长尾，Canvas 同时绘制传播中的同心波。
-  mirrorLiquidScale += (0 - mirrorLiquidScale) * 0.035;
-  mirrorDisplacement?.setAttribute('scale', mirrorLiquidScale.toFixed(2));
-  if (mirrorLiquidScale > 0.35) {
-    mirrorLiquidFrame = requestAnimationFrame(animateMirrorLiquid);
-  } else {
-    mirrorLiquidFrame = null;
-  }
-}
-
-if (mirrorStage) {
-  mirrorStage.addEventListener('pointerenter', () => {
-    if (!mirrorStream) homeMirror?.classList.add('liquid-active');
-  });
-  mirrorStage.addEventListener('pointermove', (event) => {
-    if (mirrorStream) return;
-    const bounds = mirrorStage.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
-    const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
-    const speed = mirrorLastPoint
-      ? Math.hypot(event.clientX - mirrorLastPoint.x, event.clientY - mirrorLastPoint.y)
-      : 0;
-    mirrorLastPoint = { x: event.clientX, y: event.clientY };
-    mirrorStage.style.setProperty('--liquid-x', `${(x * 100).toFixed(2)}%`);
-    mirrorStage.style.setProperty('--liquid-y', `${(y * 100).toFixed(2)}%`);
-    mirrorStage.style.setProperty('--liquid-shift-x', `${((0.5 - x) * 10).toFixed(2)}px`);
-    mirrorStage.style.setProperty('--liquid-shift-y', `${((0.5 - y) * 10).toFixed(2)}px`);
-    mirrorLiquidScale = Math.min(38, Math.max(mirrorLiquidScale, 14 + speed * 0.85));
-    if (event.timeStamp - mirrorLastTrailAt > 42 && speed > 1.5) {
-      mirrorLastTrailAt = event.timeStamp;
-      addMirrorWaterRipple(event.clientX - bounds.left, event.clientY - bounds.top, speed);
-    }
-    if (!mirrorLiquidFrame) mirrorLiquidFrame = requestAnimationFrame(animateMirrorLiquid);
-  });
-  mirrorStage.addEventListener('pointerleave', () => {
-    mirrorLastPoint = null;
-    homeMirror?.classList.remove('liquid-active');
-  });
-  mirrorStage.addEventListener('wheel', (event) => {
-    if (!window.NotchDomain.shouldHandleMirrorPinch({
-      live: Boolean(mirrorStream),
-      ctrlKey: event.ctrlKey,
-    })) return;
-    event.preventDefault();
-    setMirrorZoom(window.NotchDomain.adjustMirrorZoom(mirrorZoom, event.deltaY));
-  }, { passive: false });
-  mirrorStage.addEventListener('click', async () => {
-    if (mirrorStream || mirrorStarting) {
-      stopMirror();
-      return;
-    }
-    homeMirror?.classList.remove('ripple-active');
-    void mirrorStage.offsetWidth;
-    homeMirror?.classList.add('ripple-active');
-    setTimeout(() => homeMirror?.classList.remove('ripple-active'), 720);
-    await startMirror();
-  });
-}
 
 // ============ 首页 · 收藏剪贴 ============
 const clipfavListEl = document.getElementById('clipfav-list');
@@ -4233,7 +4095,6 @@ renderClipList(); // 首屏确保 clip-list DOM 就绪时渲染一次（幂等�
 renderClipFavs(); // 首屏渲染收藏剪贴块
 initTab();
 
-
 // ============ 待办历史：存档查看与完成跨度甘特图 ============
 function formatHistoryDate(ts) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' }).format(new Date(ts));
@@ -4396,9 +4257,15 @@ updateTodoHistoryUI();
 
 // ============ 待办 · 项目分组视图（树形，可按项目归纳） ============
 const todoGroupToggle = document.getElementById('todo-group-toggle');
+if (todoGroupToggle) todoGroupToggle.classList.toggle('active', todoGroupView);
 todoGroupToggle?.addEventListener('click', () => {
   todoGroupView = !todoGroupView;
   todoGroupToggle.classList.toggle('active', todoGroupView);
+  try {
+    localStorage.setItem('notch-todo-group-view-v1', todoGroupView ? '1' : '0');
+  } catch (error) {
+    // ignore quota errors
+  }
   PRIORITIES.forEach((priority) => renderList(priority));
 });
 document.querySelectorAll('.todo-list').forEach((list) => {

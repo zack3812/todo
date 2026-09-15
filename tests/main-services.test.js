@@ -555,7 +555,6 @@ test('feature preferences only update configurable tabs and keep permanent tabs 
   assert.deepEqual(updateFeaturePreference({ todo: true, clip: false }, 'clip', true), {
     todo: true,
     clip: true,
-    home: true,
   });
   assert.equal(updateFeaturePreference({ todo: true }, 'home', false), null);
   assert.equal(updateFeaturePreference({ todo: true }, 'settings', false), null);
@@ -563,12 +562,12 @@ test('feature preferences only update configurable tabs and keep permanent tabs 
   assert.equal(updateFeaturePreference({ todo: true }, 'todo', 'false'), null);
 });
 
-test('default panel tab accepts visible tabs and falls back to home safely', () => {
+test('default panel tab accepts visible tabs and falls back to todo safely', () => {
   const features = { todo: true, notes: false, clip: false };
   assert.equal(normalizeDefaultTabPreference('todo', features), 'todo');
   assert.equal(normalizeDefaultTabPreference('settings', features), 'settings');
-  assert.equal(normalizeDefaultTabPreference('notes', features), 'home');
-  assert.equal(normalizeDefaultTabPreference('unknown', features), 'home');
+assert.equal(normalizeDefaultTabPreference('notes', features), 'todo');
+assert.equal(normalizeDefaultTabPreference('unknown', features), 'todo');
   assert.deepEqual(updateDefaultTabPreference({ features, shortcut: 'Space' }, 'todo'), {
     features,
     shortcut: 'Space',

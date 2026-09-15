@@ -8,7 +8,6 @@ app.commandLine.appendSwitch('user-data-dir', profile);
 // Use Chromium's test keychain so a regression test never prompts for user keys.
 if (process.platform === 'darwin') app.commandLine.appendSwitch('use-mock-keychain');
 fs.writeFileSync(path.join(profile, 'workspace.json'), JSON.stringify({version:1, localStorage:{
-  'notch-home-note':'Recovered workspace note',
   'notch-recordings':JSON.stringify([{id:'startup-recording',createdAt:1788709776699,durationMs:1558,transcript:'',audioPath:'recordings/retained.webm',mimeType:'audio/webm',title:'Saved recording',category:'未分类'}]),
 }}));
 const errors = [];
@@ -21,9 +20,22 @@ app.on('web-contents-created', (_event, contents) => {
     if (!contents.getURL().endsWith('/renderer/index.html')) return;
     setTimeout(async () => {
       try {
-        const state = await contents.executeJavaScript(`({home:!!window.NotchHome,workspace:!!window.NotchWorkspace,note:document.getElementById('home-note').value,recordings:document.querySelectorAll('.recording-item').length})`);
+        const state = await contents.executeJavaScript(`(async () => {
+          const appSurface = document.getElementById('app');
+          appSurface.classList.remove('collapsed', 'opening', 'closing');
+          appSurface.classList.add('expanded');
+          document.getElementById('tab-button-todo').click();
+          await new Promise((resolve) => setTimeout(resolve, 300));
+          return {
+            workspace: !!window.NotchWorkspace,
+            recordings: document.querySelectorAll('.recording-item').length,
+            recordingTab: !!document.getElementById('tab-button-recordings'),
+            homeTab: !!document.getElementById('tab-button-home'),
+            defaultTodo: document.getElementById('tab-todo')?.classList.contains('active'),
+          };
+        })()`);
         assert.deepEqual(errors, []);
-        assert.deepEqual(state, {home:true,workspace:true,note:'Recovered workspace note',recordings:1});
+        assert.deepEqual(state, {workspace:true,recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
         console.log('Production workspace recovery checks passed');
         app.quit();
       } catch (error) { console.error(error); app.exit(1); }

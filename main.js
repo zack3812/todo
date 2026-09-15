@@ -190,6 +190,7 @@ const EXPANDED_WIDTH = 1240;
 const EXPANDED_PANEL_HEIGHT = 540;
 const TAB_SIZES = {
   home: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
+  weekly: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   todo: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   notes: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   clip: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
@@ -213,6 +214,7 @@ const CLIP_IMAGES_DIR_NAME = 'clipboard-images';
 
 const RECORDINGS_DIR_NAME = 'recordings';
 const TRANSCRIPTION_SETTINGS_FILE = 'transcription-settings.json';
+const AI_SETTINGS_FILE = 'ai-settings.json';
 const CREDENTIALS_VAULT_FILE = 'credentials.vault.json';
 const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
@@ -245,7 +247,7 @@ const TODO_REMINDER_LEAD_MS = 60 * 60 * 1000;
 let mainWindow = null;
 let tray = null;
 let currentMode = 'collapsed';
-let currentTab = 'home';
+let currentTab = 'todo';
 let collapseWatchdog = null;
 let collapseGeneration = 0;
 let hideWhenCollapsed = false;
@@ -287,6 +289,12 @@ let configuredShortcut = '';
 let previousPasteTarget = null;
 let windowScanCache = new Map();
 const windowIconCache = new Map();
+const WINDOW_ICON_CACHE_LIMIT = 200;
+function cacheWindowIcon(appPath, icon) {
+  if (windowIconCache.has(appPath)) windowIconCache.delete(appPath);
+  windowIconCache.set(appPath, icon);
+  if (windowIconCache.size > WINDOW_ICON_CACHE_LIMIT) windowIconCache.delete(windowIconCache.keys().next().value);
+}
 const transcriptionSessions = new Map();
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -1105,7 +1113,6 @@ const DEFAULT_FEATURES = {
   todo: true,
   notes: true,
   links: true,
-  recordings: true,
   credentials: true,
   clip: false,
 };
@@ -1245,10 +1252,15 @@ function setPanelShortcut(shortcut) {
   if (!isValidPanelShortcut(shortcut)) return false;
   const previousShortcut = configuredShortcut || 'Space';
   stopHoverSpaceShortcut();
-  if (configuredShortcut && configuredShortcut !== 'Space' && globalShortcut.isRegistered(configuredShortcut)) {
-    globalShortcut.unregister(configuredShortcut);
+  if (shortcut === previousShortcut) {
+    configuredShortcut = shortcut;
+    if (shortcut === 'Space') startHoverSpaceShortcut();
+    return true;
   }
   if (shortcut === 'Space') {
+    if (configuredShortcut && configuredShortcut !== 'Space' && globalShortcut.isRegistered(configuredShortcut)) {
+      globalShortcut.unregister(configuredShortcut);
+    }
     configuredShortcut = shortcut;
     startHoverSpaceShortcut();
     return true;
@@ -1264,6 +1276,9 @@ function setPanelShortcut(shortcut) {
     });
   } catch (error) {}
   if (registered) {
+    if (configuredShortcut && configuredShortcut !== 'Space' && globalShortcut.isRegistered(configuredShortcut)) {
+      globalShortcut.unregister(configuredShortcut);
+    }
     configuredShortcut = shortcut;
     return true;
   }
@@ -1339,7 +1354,7 @@ function refreshTrayMenu() {
   if (!tray) return;
   const autoLaunch = isAutoLaunchEnabled();
   const settings = readAppSettings();
-  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', recordings: '录制', credentials: '密钥', clip: '剪贴板' };
+  const featureLabels = { todo: '待办', notes: '笔记', links: '链接', credentials: '密钥', clip: '剪贴板' };
   const menu = Menu.buildFromTemplate([
     {
       label: 'API 配置…',
@@ -1541,7 +1556,7 @@ ipcMain.handle('window:metrics', () => {
 
 // Tab 仅改变内容；固定展开尺寸下不再触发原生窗口 resize。
 ipcMain.handle('window:set-tab', (event, tab) => {
-  currentTab = Object.prototype.hasOwnProperty.call(TAB_SIZES, tab) ? tab : 'home';
+currentTab = Object.prototype.hasOwnProperty.call(TAB_SIZES, tab) ? tab : 'todo';
 });
 
 async function requestMacMediaAccess(mediaType) {
@@ -1745,6 +1760,21 @@ async function validatePublicHttpUrl(value) {
   return url;
 }
 
+// 用户显式配置的 LLM 端点：与链接抓取不同，内网 / 私网地址是合法的私有化部署场景，
+// 不做 DNS 与私网拦截，仅校验协议、无内嵌凭证和主机名非空。
+function validateLlmEndpoint(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    return null;
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname) return null;
+  return url;
+}
+
 async function readResponseText(response) {
   if (!response.body) return '';
   const reader = response.body.getReader();
@@ -1791,10 +1821,8 @@ async function fetchFaviconDataUrl(pageUrl, html) {
 async function enrichLinkMetadata(url, title) {
   const config = resolveLlmConfig();
   if (!config.apiKey || !config.model) return { title, category: '' };
-  const endpoint = config.baseUrl.endsWith('/chat/completions')
-    ? config.baseUrl
-    : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const safeEndpoint = await validatePublicHttpUrl(endpoint);
+  const endpoint = llmEndpoint(config);
+  const safeEndpoint = await validateLlmEndpoint(endpoint);
   if (!safeEndpoint) return { title, category: '' };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), LINK_FETCH_TIMEOUT_MS);
@@ -1903,10 +1931,8 @@ ipcMain.handle('smart:organize-material', async (event, payload) => {
   const transcript = String(payload && payload.text || '').trim().slice(0, 8000);
   if (!transcript) return { ok: false, error: 'empty_text' };
   if (!config.apiKey || !config.model) return { ok: false, error: 'not_configured' };
-  const endpoint = config.baseUrl.endsWith('/chat/completions')
-    ? config.baseUrl
-    : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
-  const safeEndpoint = await validatePublicHttpUrl(endpoint);
+  const endpoint = llmEndpoint(config);
+  const safeEndpoint = await validateLlmEndpoint(endpoint);
   if (!safeEndpoint) return { ok: false, error: 'invalid_endpoint' };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 9000);
@@ -2072,7 +2098,7 @@ async function scanCurrentWindows() {
     await Promise.all(appPaths.map(async (appPath) => {
       if (windowIconCache.has(appPath)) return;
       const icon = await withTimeout(readWindowAppIcon(appPath), 3500, null);
-      windowIconCache.set(appPath, icon);
+      cacheWindowIcon(appPath, icon);
     }));
     rows.forEach((item) => {
       item.icon = item.appPath ? windowIconCache.get(item.appPath) || null : null;
@@ -2568,11 +2594,96 @@ function decryptStoredSecret(value) {
 }
 
 function resolveLlmConfig() {
+  const aiSettings = readJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE));
   const settings = readStoredTranscriptionSettings();
+  const baseUrl = String(aiSettings.baseUrl || settings.llmBaseUrl || 'https://api.deepseek.com').trim();
   return {
-    apiKey: String(process.env.NOTCH_LLM_API_KEY || decryptStoredSecret(settings.encryptedLlmApiKey)).trim(),
-    baseUrl: String(settings.llmBaseUrl || 'https://api.deepseek.com').trim(),
-    model: String(settings.llmModel || 'deepseek-v4-flash').trim(),
+    apiKey: String(
+      process.env.NOTCH_LLM_API_KEY
+      || decryptStoredSecret(aiSettings.encryptedApiKey)
+      || decryptStoredSecret(settings.encryptedLlmApiKey)
+    ).trim(),
+    baseUrl,
+    // 只有默认 DeepSeek 地址才带内置模型；其他上游在未显式配置模型时留空，
+    // 由 callConfiguredLlm 首次调用时自动获取。
+    model: String(aiSettings.model || settings.llmModel || (baseUrl.includes('deepseek.com') ? 'deepseek-v4-flash' : '')).trim(),
+  };
+}
+
+function llmEndpoint(config) {
+  return config.baseUrl.endsWith('/chat/completions')
+    ? config.baseUrl
+    : `${config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+}
+
+/* ============ 模型自动获取 ============ */
+const LLM_MODEL_EXCLUDE = /(embedding|rerank|re-rank|image|video|audio|tts|asr|whisper|speech|moderation|moderat|dall|stt|ocr|sft|finetun|fine-tun|batch|vector|transcri|music|function|tool|vision|omni|vl|search|preview)/i;
+const LLM_MODEL_PREFER = /(flash|lite|mini|small|turbo|instruct|4o|chat)/i;
+
+function rankLlmModels(ids) {
+  const seen = new Set();
+  const scored = [];
+  for (const raw of ids) {
+    const id = String(raw).trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    if (LLM_MODEL_EXCLUDE.test(id)) continue;
+    let score = 0;
+    if (LLM_MODEL_PREFER.test(id)) score += 3;
+    if (/chat/i.test(id)) score += 1;
+    if (/^(deepseek-chat|glm-4|qwen-turbo|qwen-plus|qwen-max|kimi|gpt-4o-mini|claude)/i.test(id)) score += 1;
+    scored.push({ id, score });
+  }
+  scored.sort((a, b) => (b.score - a.score) || (a.id.length - b.id.length) || a.id.localeCompare(b.id));
+  return scored.map((entry) => entry.id);
+}
+
+async function fetchLlmModelList(baseUrl, apiKey) {
+  const safeEndpoint = await validateLlmEndpoint(`${String(baseUrl).replace(/\/+$/, '')}/models`);
+  if (!safeEndpoint) return { ok: false, error: 'invalid_endpoint' };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 9000);
+  try {
+    const response = await fetch(safeEndpoint, {
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (!response.ok) return { ok: false, error: `http_${response.status}` };
+    const payload = await response.json();
+    const ids = Array.isArray(payload && payload.data)
+      ? payload.data.map((entry) => entry && entry.id)
+      : [];
+    const models = rankLlmModels(ids);
+    return { ok: true, models, recommended: models[0] || '' };
+  } catch (error) {
+    return { ok: false, error: error && error.name === 'AbortError' ? 'timeout' : 'request_failed' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function resolveModelAutomatically(baseUrl, apiKey, persist = true) {
+  const list = await fetchLlmModelList(baseUrl, apiKey);
+  if (!list.ok || !list.recommended) return list;
+  if (persist) {
+    const previous = readJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE));
+    if (!writeJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE), { ...previous, model: list.recommended })) {
+      return { ok: false, error: 'save_failed' };
+    }
+  }
+  return { ok: true, model: list.recommended, models: list.models };
+}
+
+function publicAiConfig() {
+  const stored = readJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE));
+  const config = resolveLlmConfig();
+  return {
+    // 模型可在首次调用时自动获取，因此只要有 Base URL + API Key 即视为已配置。
+    configured: Boolean(config.apiKey && config.baseUrl),
+    baseUrl: config.baseUrl,
+    model: config.model,
+    secureStorage: safeStorage.isEncryptionAvailable(),
+    needsReentry: Boolean(stored.encryptedApiKey && !config.apiKey),
   };
 }
 
@@ -2793,6 +2904,167 @@ function connectTranscriptionSocket(session) {
     if (active()) reconnectTranscription(session, `connection_closed_${code}`);
   });
 }
+
+ipcMain.handle('ai:get-config', () => publicAiConfig());
+
+ipcMain.handle('ai:list-models', async (event, payload) => {
+  const saved = resolveLlmConfig();
+  const baseUrl = String(payload && payload.baseUrl || saved.baseUrl).trim();
+  const apiKey = String(payload && payload.apiKey || saved.apiKey || '').trim();
+  if (!apiKey) return { ok: false, error: 'not_configured' };
+  return fetchLlmModelList(baseUrl, apiKey);
+});
+
+ipcMain.handle('ai:set-config', async (event, payload) => {
+  const previous = readJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE));
+  const baseUrl = String(payload && payload.baseUrl || previous.baseUrl || 'https://api.deepseek.com').trim();
+  let model = String(payload && payload.model || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  const apiKey = String(payload && payload.apiKey || '').trim();
+  let parsedUrl;
+  try { parsedUrl = new URL(baseUrl); } catch (error) { parsedUrl = null; }
+  if (!parsedUrl || !['http:', 'https:'].includes(parsedUrl.protocol) || parsedUrl.username || parsedUrl.password) {
+    return { ok: false, error: 'invalid_url' };
+  }
+  if (apiKey && !safeStorage.isEncryptionAvailable()) {
+    return { ok: false, error: 'secure_storage_unavailable' };
+  }
+  // 模型留空时自动获取：从 Base URL 拉取模型列表并填入推荐项。
+  let modelAutoFetchFailed = false;
+  if (!model) {
+    const effectiveKey = apiKey
+      || decryptStoredSecret(previous.encryptedApiKey)
+      || process.env.NOTCH_LLM_API_KEY
+      || '';
+    const discovered = await fetchLlmModelList(parsedUrl.toString().replace(/\/$/, ''), effectiveKey);
+    if (discovered.ok && discovered.recommended) {
+      model = discovered.recommended;
+    } else {
+      modelAutoFetchFailed = true;
+    }
+  }
+  const next = {
+    baseUrl: parsedUrl.toString().replace(/\/$/, ''),
+    model,
+    encryptedApiKey: apiKey
+      ? safeStorage.encryptString(apiKey).toString('base64')
+      : String(previous.encryptedApiKey || ''),
+  };
+  if (!writeJsonFile(getJsonSettingsPath(AI_SETTINGS_FILE), next)) return { ok: false, error: 'save_failed' };
+  return { ok: true, modelAutoFetchFailed, ...publicAiConfig() };
+});
+
+async function callConfiguredLlm(messages, timeoutMs = 12000, override = null) {
+  const saved = resolveLlmConfig();
+  const config = override && typeof override === 'object'
+    ? {
+      apiKey: String(override.apiKey || saved.apiKey).trim(),
+      baseUrl: String(override.baseUrl || saved.baseUrl).trim(),
+      // 测试连接时模型留空表示“自动获取”，不得回退到已保存的旧模型。
+      model: String(override.model || '').trim(),
+    }
+    : saved;
+  if (!config.apiKey) return { ok: false, error: 'not_configured' };
+  let model = config.model;
+  // 模型未配置（非 DeepSeek 默认上游）：先自动获取可用模型。
+  if (!model) {
+    const discovered = await resolveModelAutomatically(config.baseUrl, config.apiKey);
+    if (!discovered.ok || !discovered.model) {
+      return { ok: false, error: discovered.error === 'invalid_endpoint' ? 'invalid_endpoint' : 'model_not_found' };
+    }
+    model = discovered.model;
+  }
+  const endpoint = await validateLlmEndpoint(llmEndpoint({ ...config, model }));
+  if (!endpoint) return { ok: false, error: 'invalid_endpoint' };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Authorization: `Bearer ${config.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        response_format: { type: 'json_object' },
+        messages,
+      }),
+    });
+    if (!response.ok) {
+      // 测试连接等显式指定模型时如实报错，不自动换模型重试。
+      if (override && String(override.model || '').trim()) {
+        return { ok: false, error: `http_${response.status}` };
+      }
+      // 配置的模型不存在或已下线：自动获取可用模型并重试一次。
+      if (response.status === 400 || response.status === 404) {
+        const matchesSaved = !override || !override.baseUrl
+          || String(override.baseUrl).trim().replace(/\/+$/, '') === saved.baseUrl.replace(/\/+$/, '');
+        const discovered = await resolveModelAutomatically(config.baseUrl, config.apiKey, matchesSaved);
+        if (discovered.ok && discovered.model && discovered.model !== model) {
+          return callConfiguredLlm(messages, timeoutMs, {
+            apiKey: config.apiKey,
+            baseUrl: config.baseUrl,
+            model: discovered.model,
+          });
+        }
+      }
+      return { ok: false, error: `http_${response.status}` };
+    }
+    const payload = await response.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (!content) {
+      console.error('[llm] invalid_response raw:', JSON.stringify(payload).slice(0, 600));
+      return { ok: false, error: 'invalid_response' };
+    }
+    return { ok: true, content: String(content) };
+  } catch (error) {
+    return { ok: false, error: error?.name === 'AbortError' ? 'timeout' : 'request_failed' };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+ipcMain.handle('ai:test-connection', async (event, payload) => {
+  const result = await callConfiguredLlm([
+    { role: 'system', content: '只返回 JSON：{"ok":true}' },
+    { role: 'user', content: '测试连接' },
+  ], 9000, payload);
+  return result.ok ? { ok: true, ...publicAiConfig() } : result;
+});
+
+ipcMain.handle('ai:summarize-week', async (event, payload) => {
+  const userPrompt = String(payload?.userPrompt || '').trim().slice(0, 4000);
+  const week = String(payload?.week || '').slice(0, 40);
+  const current = JSON.stringify(payload?.current || {}).slice(0, 16000);
+  const previous = String(payload?.previousSummary || '').slice(0, 10000);
+  if (!week || !current) return { ok: false, error: 'invalid_payload' };
+  const result = await callConfiguredLlm([
+    {
+      role: 'system',
+      content: userPrompt || '你是个人工作复盘助手。结合上周总结和本周待办，生成简洁、具体的中文周报。只返回 JSON：{"progress":"本周进展","status":"整体进度","nextWeek":"下周待办"}。每个字段使用 Markdown，避免空泛表扬。',
+    },
+    {
+      role: 'user',
+      content: `本周：${week}\n本周待办数据：${current}\n上周总结：${previous || '暂无'}`,
+    },
+  ], 60000);
+  console.error('[weekly-llm]', JSON.stringify(result).slice(0, 400));
+  if (!result.ok) return result;
+  let parsed;
+  try {
+    parsed = JSON.parse(result.content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+  } catch (error) {
+    return { ok: false, error: 'invalid_response' };
+  }
+  const clean = (value) => String(value || '').trim().slice(0, 6000);
+  if (!clean(parsed.progress) && !clean(parsed.nextWeek)) return { ok: false, error: 'invalid_response' };
+  return {
+    ok: true,
+    week,
+    progress: clean(parsed.progress),
+    status: clean(parsed.status),
+    nextWeek: clean(parsed.nextWeek),
+  };
+});
 
 ipcMain.handle('transcription:get-config', () => publicTranscriptionConfig());
 

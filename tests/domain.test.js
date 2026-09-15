@@ -353,6 +353,9 @@ test('createTodo requires a valid DDL and preserves reminder metadata', () => {
     createdAt: 100,
     deadline: '2026-08-22T10:30:00.000Z',
     remindedAt: 0,
+    dingtalkTaskId: '',
+    dingtalkSyncedAt: 0,
+    executorIds: [],
   });
 });
 
@@ -462,9 +465,9 @@ test('credential row routes its trailing action to delete while its body still o
 
 test('settings stays at the far right when optional tabs are hidden', () => {
   assert.equal(typeof visiblePanelTabs, 'function', 'visiblePanelTabs must exist');
-  const tabs = ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
+const tabs = ['todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'];
   assert.deepEqual(visiblePanelTabs(tabs, { todo: false, clip: true }), [
-    'home', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
+'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
   ]);
   assert.deepEqual(visiblePanelTabs(tabs, {
     todo: false,
@@ -474,13 +477,13 @@ test('settings stays at the far right when optional tabs are hidden', () => {
     credentials: false,
     clip: false,
     settings: false,
-  }), ['home', 'settings']);
+}), ['settings']);
 });
 
 test('default panel tab uses the preference only while that tab is visible', () => {
-  assert.equal(resolveDefaultPanelTab('todo', ['home', 'todo', 'settings']), 'todo');
-  assert.equal(resolveDefaultPanelTab('todo', ['home', 'settings']), 'home');
-  assert.equal(resolveDefaultPanelTab('unknown', ['home', 'settings']), 'home');
+assert.equal(resolveDefaultPanelTab('todo', ['todo', 'settings']), 'todo');
+assert.equal(resolveDefaultPanelTab('todo', ['settings']), 'settings');
+assert.equal(resolveDefaultPanelTab('unknown', ['todo', 'settings']), 'todo');
 });
 
 test('settings summary combines safe API status with local device settings', () => {
@@ -491,7 +494,7 @@ test('settings summary combines safe API status with local device settings', () 
     transcription: { configured: true, llmConfigured: false },
   }), {
     shortcut: 'Command+Shift+P',
-    defaultTab: 'home',
+defaultTab: 'todo',
     autoLaunch: true,
     workspacePath: '/Users/test/Panel',
     workspaceLabel: '自定义文件夹',
@@ -807,22 +810,24 @@ test('mirror pinch zooms only a live camera and stays within safe bounds', () =>
   assert.equal(domain.adjustMirrorZoom?.(2.55, -100), 2.6);
 });
 
-test('todo time battery reports the remaining share with exact color boundaries', () => {
+test('todo time battery reports the remaining time with exact color boundaries', () => {
   const deadline = '2026-08-21T10:00:00.000Z';
   const todo = { deadline, done: false };
-  // 距截止 ≥ 24h：满格 100%，不再受创建时间影响
+  // 距截止 25h ≥ 24h：满格 100%，显示剩余天数，不再受创建时间影响
   assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-20T09:00:00.000Z')), {
     percent: 100,
     tone: 'green',
     overdue: false,
-    label: '剩余 100%',
+    label: '剩余 1天',
+    text: '1天',
   });
   // 剩 8h → 33%
   assert.deepEqual(todoTimeBattery(todo, Date.parse('2026-08-21T02:00:00.000Z')), {
     percent: 33,
     tone: 'orange',
     overdue: false,
-    label: '剩余 33%',
+    label: '剩余 8小时',
+    text: '8h',
   });
   // 剩 5h → 21%，进入红色
   assert.equal(todoTimeBattery(todo, Date.parse('2026-08-21T05:00:00.000Z')).tone, 'red');
@@ -831,19 +836,22 @@ test('todo time battery reports the remaining share with exact color boundaries'
     percent: 0,
     tone: 'red',
     overdue: true,
-    label: '已逾期',
+    label: '已逾期 1分钟',
+    text: '+1m',
   });
-  // 逾期前的最后一刻仍是「剩余 0%」：取整落到 0 与真正欠账必须可区分。
+  // 逾期前的最后一刻仍是「剩余 1m」：取整落到 0 与真正欠账必须可区分。
   const almostDue = todoTimeBattery(todo, Date.parse('2026-08-21T09:59:00.000Z'));
   assert.equal(almostDue.overdue, false);
   assert.equal(almostDue.percent, 0);
-  assert.equal(almostDue.label, '剩余 0%');
+  assert.equal(almostDue.label, '剩余 1分钟');
+  assert.equal(almostDue.text, '1m');
   assert.equal(todoTimeBattery({ deadline, done: true }, Date.parse('2026-08-21T02:00:00.000Z')), null);
   assert.deepEqual(todoTimeBattery({}, Date.parse('2026-08-21T02:00:00.000Z')), {
     percent: 0,
-    tone: 'red',
+    tone: 'muted',
     overdue: false,
     label: '待补充有效截止时间',
+    text: '无期限',
   });
 });
 
@@ -890,6 +898,17 @@ test('todo project grouping keeps first-seen order and isolates ungrouped items'
       ['官网', ['d']],
     ]
   );
+});
+
+test('todo project grouping merges spacing and case variants of the same project', () => {
+  const groups = domain.groupTodosByProject([
+    { id: 'a', text: 'A', project: ' Acme ' },
+    { id: 'b', text: 'B', project: 'acme' },
+    { id: 'c', text: 'C', project: 'ACME' },
+  ]);
+  assert.deepEqual(groups.map((group) => [group.project, group.items.map((item) => item.id)]), [
+    ['Acme', ['a', 'b', 'c']],
+  ]);
 });
 
 test('dominant project returns the most frequent named project or empty string', () => {

@@ -6,6 +6,7 @@ const path = require('node:path');
 const html = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'index.html'), 'utf8');
 const appJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
 const workspaceJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'workspace.js'), 'utf8');
+const domainJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'domain.js'), 'utf8');
 const effectsJs = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'effects.js'), 'utf8');
 
 test('clipboard rows define both favorite icons before rendering entries', () => {
@@ -21,59 +22,65 @@ test('notes have a dedicated top-level tab and management panel', () => {
   assert.match(html, /id="notes-detail"/);
 });
 
-test('home scratch note keeps only the save action', () => {
-  const homeNote = html.match(/<section class="tile home-note"[\s\S]*?<\/section>/)?.[0] || '';
-  assert.match(homeNote, /id="note-save-btn"/);
-  assert.doesNotMatch(homeNote, /id="note-library-btn"/);
-  assert.doesNotMatch(homeNote, /id="note-library"/);
+test('homepage tab and its widgets are fully removed', () => {
+  assert.doesNotMatch(html, /data-tab="home"/);
+  assert.doesNotMatch(html, /id="tab-home"/);
+  assert.doesNotMatch(html, /home-bento/);
+  assert.doesNotMatch(html, /data-home-module/);
+  assert.doesNotMatch(html, /settings-home-module/);
+  assert.doesNotMatch(html, /settings-mirror-choose/);
+  assert.doesNotMatch(appJs, /window\.NotchHome\s*=/);
+  assert.doesNotMatch(appJs, /notch:home-modules-changed/);
+  assert.doesNotMatch(appJs, /homeLayoutReadOnly/);
+  assert.doesNotMatch(appJs, /stopMirror/);
 });
 
-test('recordings expose in-page API settings and create a live draft while recording', () => {
-  assert.match(html, /id="recording-configure"/);
-  assert.match(workspaceJs, /function beginRecordingDraft\(\)/);
-  assert.match(workspaceJs, /recordingLiveTranscript/);
-  assert.match(workspaceJs, /configure-transcription/);
+test('todo opens by default after the homepage is gone', () => {
+  assert.match(appJs, /let activeTab = 'todo'/);
+  assert.match(appJs, /let defaultOpenTab = 'todo'/);
+  assert.match(appJs, /TABS\[0\] \|\| 'settings'/);
+  assert.match(domainJs, /defaultTab: String\(appSettings\.defaultTab \|\| 'todo'\)/);
 });
 
-test('a live recording can be paused, resumed, and stopped from the recordings tab', () => {
-  assert.match(workspaceJs, /recording-live-pause/);
-  assert.match(workspaceJs, /recording-live-stop/);
-  assert.match(workspaceJs, /togglePauseRecording/);
-  assert.match(workspaceJs, /stopRecording/);
+test('recording UI is removed and AI configuration remains available', () => {
+  assert.doesNotMatch(html, /data-tab="recordings"/);
+  assert.doesNotMatch(html, /id="recording-new"/);
+  assert.match(html, /id="llm-base-url"/);
+  assert.match(html, /id="llm-api-key"/);
+  assert.match(html, /id="llm-model"/);
+  assert.match(html, /id="transcription-settings-test"/);
+  assert.match(workspaceJs, /setAiConfig/);
+  assert.match(workspaceJs, /testAiConnection/);
 });
 
-test('homepage visibility has one storage key, exact validation, and lifecycle events', () => {
-  assert.match(appJs, /notch-home-hidden-modules-v1/);
-  assert.match(appJs, /validateHomeWidgetLayout/);
-  assert.match(appJs, /window\.NotchHome\s*=/);
-  assert.match(appJs, /notch:home-modules-changed/);
-  assert.match(appJs, /notch:home-layout-error/);
-  assert.match(appJs, /stopMirror\(\)/);
-  assert.match(appJs, /new Set\(homeTiles\.map\(\(tile\) => tile\.dataset\.homeModule\)\)/);
-});
-
-test('settings exposes exactly one switch for every homepage widget', () => {
-  const switches = [...html.matchAll(/data-settings-home-module="([^"]+)"/g)]
-    .map((match) => match[1]);
-  assert.deepEqual(switches, [
-    'music', 'pomodoro', 'recorder', 'windows', 'mirror', 'note', 'commands',
-  ]);
-  assert.match(workspaceJs, /isRecordingActive/);
-  assert.match(workspaceJs, /recording_active/);
-  assert.match(workspaceJs, /at_least_one_required/);
+test('todo progress and weekly summary have local persistence and AI entry points', () => {
+  assert.match(html, /id="todo-progress-backdrop"/);
+  assert.match(html, /id="todo-progress-status"/);
+  assert.match(html, /id="todo-progress-text"/);
+  assert.match(html, /id="todo-progress-next"/);
+  assert.match(html, /id="todo-weekly-generate"/);
+  assert.match(html, /id="todo-weekly-close"/);
+  assert.match(html, /id="todo-weekly-result"/);
+  assert.match(html, /id="todo-weekly-progress"/);
+  assert.match(html, /data-tab="weekly"/);
+  assert.match(html, /id="tab-weekly"/);
+  assert.match(html, /id="weekly-generate"/);
+  assert.match(html, /id="weekly-history"/);
+  assert.match(html, /id="weekly-progress"/);
+  assert.match(html, /id="weekly-status"/);
+  assert.match(html, /id="weekly-next"/);
+  assert.match(appJs, /notch-todo-progress-v1/);
+  assert.match(appJs, /notch-todo-weekly-summaries-v1/);
+  assert.match(appJs, /previousWeekKey/);
+  assert.match(appJs, /summarizeWeek/);
+  assert.match(appJs, /renderWeeklyHistory/);
 });
 
 test('settings exposes every panel tab as a possible default opening page', () => {
   const select = html.match(/<select id="settings-default-tab"[\s\S]*?<\/select>/)?.[0] || '';
   const options = [...select.matchAll(/<option value="([^"]+)"/g)].map((match) => match[1]);
   assert.deepEqual(options, [
-    'home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings',
+    'todo', 'notes', 'links', 'credentials', 'clip', 'settings',
   ]);
   assert.match(workspaceJs, /setDefaultTab/);
-});
-
-test('hidden visual widgets stop presentation-only background work', () => {
-  assert.match(effectsJs, /setEnabled/);
-  assert.match(effectsJs, /notch:home-modules-changed/);
-  assert.match(workspaceJs, /NotchHome\?\.isVisible/);
 });

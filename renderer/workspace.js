@@ -710,6 +710,7 @@
   const transcriptionSettingsBackdrop = document.getElementById('transcription-settings-backdrop');
   const transcriptionSettingsClose = document.getElementById('transcription-settings-close');
   const transcriptionSettingsCancel = document.getElementById('transcription-settings-cancel');
+  const transcriptionSettingsTest = document.getElementById('transcription-settings-test');
   const transcriptionSettingsSave = document.getElementById('transcription-settings-save');
   const transcriptionApiKey = document.getElementById('transcription-api-key');
   const transcriptionApiStatus = document.getElementById('transcription-api-status');
@@ -721,6 +722,7 @@
   const llmApiHelp = document.getElementById('llm-api-help');
   const llmBaseUrl = document.getElementById('llm-base-url');
   const llmModel = document.getElementById('llm-model');
+  const llmModelFetch = document.getElementById('llm-model-fetch');
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
   const settingsApiConfigure = document.getElementById('settings-api-configure');
   const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
@@ -743,6 +745,84 @@
   const settingsWorkspaceChoose = document.getElementById('settings-workspace-choose');
   const settingsAutoLaunch = document.getElementById('settings-auto-launch');
   const settingsInlineNote = document.getElementById('settings-inline-note');
+
+  // ========== NexusDesk 云同步设置 ==========
+  const nexusdeskSyncEnabled = document.getElementById('nexusdesk-sync-enabled');
+  const nexusdeskSyncStatus = document.getElementById('nexusdesk-sync-status');
+  const nexusdeskConfigFields = document.getElementById('nexusdesk-config-fields');
+  const nexusdeskUserId = document.getElementById('nexusdesk-user-id');
+  const nexusdeskPassword = document.getElementById('nexusdesk-password');
+  const nexusdeskSyncConnect = document.getElementById('nexusdesk-sync-connect');
+  const nexusdeskSyncSave = document.getElementById('nexusdesk-sync-save');
+
+  function refreshNexusdeskStatus() {
+    if (!window.NexusDeskSync) return;
+    const status = window.NexusDeskSync.getConnectionStatus();
+    const labelMap = { connected: '已连接', connecting: '连接中…', disconnected: '未登录', closing: '断开中…' };
+    const isLoggedIn = window.NexusDeskSync.isLoggedIn();
+    nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>' + (isLoggedIn ? (labelMap[status] || status) : '未登录');
+    nexusdeskSyncStatus.dataset.state = isLoggedIn ? status : 'disconnected';
+    nexusdeskSyncConnect.textContent = isLoggedIn && status === 'connected' ? '断开' : '登录并连接';
+  }
+
+  function loadNexusdeskConfig() {
+    if (!window.NexusDeskSync) return;
+    const cfg = window.NexusDeskSync.getSyncConfig();
+    nexusdeskSyncEnabled.checked = cfg.enabled === true;
+    nexusdeskConfigFields.hidden = !cfg.enabled;
+    nexusdeskUserId.value = cfg.employeeId || '';
+    nexusdeskPassword.value = '';
+    refreshNexusdeskStatus();
+  }
+
+  if (nexusdeskSyncEnabled) {
+    loadNexusdeskConfig();
+    if (window.NexusDeskSync) {
+      window.NexusDeskSync.onStatusChange(refreshNexusdeskStatus);
+    }
+
+    nexusdeskSyncEnabled.addEventListener('change', () => {
+      const enabled = nexusdeskSyncEnabled.checked;
+      nexusdeskConfigFields.hidden = !enabled;
+      if (window.NexusDeskSync) {
+        window.NexusDeskSync.saveSyncConfig({ enabled });
+        if (!enabled) {
+          window.NexusDeskSync.disconnect();
+        }
+      }
+      refreshNexusdeskStatus();
+    });
+
+    nexusdeskSyncConnect?.addEventListener('click', async () => {
+      if (!window.NexusDeskSync) return;
+      const status = window.NexusDeskSync.getConnectionStatus();
+      if (status === 'connected') {
+        window.NexusDeskSync.disconnect();
+        refreshNexusdeskStatus();
+        return;
+      }
+      const empId = nexusdeskUserId.value.trim();
+      const pwd = nexusdeskPassword.value;
+      if (!empId || !pwd) return;
+      nexusdeskSyncConnect.textContent = '登录中…';
+      try {
+        await window.NexusDeskSync.login(empId, pwd);
+        await window.NexusDeskSync.connect();
+        nexusdeskPassword.value = '';
+      } catch (e) {
+        nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>';
+        nexusdeskSyncStatus.appendChild(document.createTextNode(`登录失败: ${e.message || '未知错误'}`));
+      }
+      refreshNexusdeskStatus();
+    });
+
+    nexusdeskSyncSave?.addEventListener('click', () => {
+      if (!window.NexusDeskSync) return;
+      window.NexusDeskSync.logout();
+      nexusdeskPassword.value = '';
+      refreshNexusdeskStatus();
+    });
+  }
 
   let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
   let selectedRecordingId = recordings[0] && recordings[0].id;
@@ -910,19 +990,24 @@
   }
 
   function updateTranscriptionConfigUi() {
-    const statuses = Domain.apiCredentialStatuses(transcriptionConfig);
-    if (transcriptionApiStatus) {
-      transcriptionApiStatus.textContent = statuses.transcription.label;
-      transcriptionApiStatus.dataset.state = statuses.transcription.state;
-    }
+    const configured = Boolean(transcriptionConfig.configured || transcriptionConfig.llmConfigured);
     if (llmApiStatus) {
-      llmApiStatus.textContent = statuses.llm.label;
-      llmApiStatus.dataset.state = statuses.llm.state;
+      llmApiStatus.textContent = configured ? '已配置' : '未配置';
+      llmApiStatus.dataset.state = configured ? 'saved' : 'empty';
     }
-    if (transcriptionRegion) transcriptionRegion.value = transcriptionConfig.region || 'beijing';
-    if (transcriptionWorkspace) transcriptionWorkspace.value = transcriptionConfig.workspaceId || '';
     if (llmBaseUrl) llmBaseUrl.value = transcriptionConfig.llmBaseUrl || 'https://api.deepseek.com';
-    if (llmModel) llmModel.value = transcriptionConfig.llmModel || 'deepseek-v4-flash';
+    if (llmModel) {
+      const savedModel = transcriptionConfig.llmModel || '';
+      if (savedModel && ![...llmModel.options].some((o) => o.value === savedModel)) {
+        const opt = document.createElement('option');
+        opt.value = savedModel;
+        opt.textContent = savedModel;
+        llmModel.appendChild(opt);
+      }
+      llmModel.value = savedModel;
+    }
+    const settingsLlmModel = document.getElementById('settings-llm-model');
+    if (settingsLlmModel) settingsLlmModel.textContent = transcriptionConfig.llmModel || '未设置';
   }
 
   function setSettingsNote(message, error = false) {
@@ -938,10 +1023,15 @@
   }
 
   function renderSettingsPanel() {
+    const aiStatus = {
+      ...transcriptionConfig,
+      llmConfigured: transcriptionConfig.configured,
+      llmNeedsReentry: transcriptionConfig.needsReentry,
+    };
     const summary = Domain.settingsSummary({
       appSettings: settingsAppSettings,
       workspace: settingsWorkspace,
-      transcription: transcriptionConfig,
+      transcription: aiStatus,
     });
     if (settingsTranscriptionStatus) {
       settingsTranscriptionStatus.textContent = summary.transcription.label;
@@ -954,7 +1044,7 @@
     if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
     if (settingsDefaultTab) {
       const visibleTabs = new Set(Domain.visiblePanelTabs(
-        ['home', 'todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'],
+['todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'],
         settingsAppSettings?.features
       ));
       Array.from(settingsDefaultTab.options).forEach((option) => {
@@ -962,7 +1052,11 @@
         option.hidden = !visible;
         option.disabled = !visible;
       });
-      settingsDefaultTab.value = visibleTabs.has(summary.defaultTab) ? summary.defaultTab : 'home';
+settingsDefaultTab.value = visibleTabs.has(summary.defaultTab) ? summary.defaultTab : 'todo';
+      if (settingsDefaultTabTrigger) {
+        const selected = settingsDefaultTab.options[settingsDefaultTab.selectedIndex];
+settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
+      }
     }
     if (settingsWorkspaceKind) settingsWorkspaceKind.textContent = summary.workspaceLabel;
     if (settingsWorkspacePath) {
@@ -1006,13 +1100,13 @@
     const [appSettings, workspace, config, mirrorImage] = await Promise.all([
       window.notchAPI.getAppSettings?.().catch(() => null),
       window.notchAPI.getWorkspace?.().catch(() => null),
-      window.notchAPI.getTranscriptionConfig?.().catch(() => null),
+      window.notchAPI.getAiConfig?.().catch(() => null),
       window.notchAPI.getMirrorImage?.().catch(() => null),
     ]);
     if (appSettings) settingsAppSettings = appSettings;
     if (workspace) settingsWorkspace = workspace;
     if (config) {
-      transcriptionConfig = config;
+      transcriptionConfig = { ...config, llmConfigured: config.configured, llmBaseUrl: config.baseUrl, llmModel: config.model };
       updateTranscriptionConfigUi();
       updateRecordingUi();
     }
@@ -1021,10 +1115,10 @@
   }
 
   async function loadTranscriptionConfig() {
-    if (!window.notchAPI || typeof window.notchAPI.getTranscriptionConfig !== 'function') return;
+    if (!window.notchAPI || typeof window.notchAPI.getAiConfig !== 'function') return;
     try {
-      const config = await window.notchAPI.getTranscriptionConfig();
-      if (config) transcriptionConfig = config;
+      const config = await window.notchAPI.getAiConfig();
+      if (config) transcriptionConfig = { ...config, llmConfigured: config.configured, llmBaseUrl: config.baseUrl, llmModel: config.model };
     } catch (error) {}
     updateTranscriptionConfigUi();
     updateRecordingUi();
@@ -1035,12 +1129,11 @@
     if (!transcriptionSettingsBackdrop) return;
     transcriptionSettingsBackdrop.hidden = false;
     transcriptionSettingsNote.classList.remove('error', 'success');
-    transcriptionSettingsNote.textContent = transcriptionConfig.asrNeedsReentry || transcriptionConfig.llmNeedsReentry
-      ? '检测到旧版加密密钥，但升级后无法解密。请重新输入通义百炼与 DeepSeek 两把 API Key。'
-      : transcriptionConfig.configured || transcriptionConfig.llmConfigured
-        ? '已配置的 API Key 可留空；新输入的密钥会覆盖对应旧值。'
-        : '请分别配置通义百炼实时转写与 DeepSeek 两把 API Key。';
-    if (transcriptionApiKey) transcriptionApiKey.value = '';
+    transcriptionSettingsNote.textContent = transcriptionConfig.needsReentry
+      ? '检测到已保存的密钥无法解密，请重新输入 API Key。'
+      : transcriptionConfig.configured
+        ? 'API Key 可留空；新输入的密钥会覆盖旧值。'
+        : '请输入 Base URL 和 API Key；模型可自动获取，也可手动填写。';
     if (llmApiKey) llmApiKey.value = '';
     updateTranscriptionConfigUi();
     setTimeout(() => transcriptionApiKey?.focus(), 0);
@@ -1052,14 +1145,9 @@
 
   async function saveTranscriptionSettings() {
     if (!window.notchAPI || !transcriptionSettingsSave) return;
-    if (
-      !transcriptionConfig.configured
-      && !transcriptionApiKey.value.trim()
-      && !transcriptionConfig.llmConfigured
-      && !llmApiKey.value.trim()
-    ) {
+    if (!transcriptionConfig.configured && !llmApiKey.value.trim()) {
       transcriptionSettingsNote.classList.add('error');
-      transcriptionSettingsNote.textContent = '请至少配置一个 API Key。';
+      transcriptionSettingsNote.textContent = '请输入 API Key，或先通过环境变量配置。';
       return;
     }
     transcriptionSettingsSave.disabled = true;
@@ -1067,13 +1155,10 @@
     transcriptionSettingsNote.textContent = '正在安全保存…';
     let result;
     try {
-      result = await window.notchAPI.setTranscriptionConfig({
-        apiKey: transcriptionApiKey.value,
-        region: transcriptionRegion.value,
-        workspaceId: transcriptionWorkspace.value,
-        llmApiKey: llmApiKey.value,
-        llmBaseUrl: llmBaseUrl.value,
-        llmModel: llmModel.value,
+      result = await window.notchAPI.setAiConfig({
+        apiKey: llmApiKey.value,
+        baseUrl: llmBaseUrl.value,
+        model: llmModel.value,
       });
     } catch (error) {
       result = { ok: false, error: 'save_failed' };
@@ -1081,36 +1166,28 @@
     transcriptionSettingsSave.disabled = false;
     if (!result || !result.ok) {
       transcriptionSettingsNote.classList.add('error');
-      transcriptionSettingsNote.textContent = result && result.error === 'invalid_workspace'
-        ? 'Workspace ID 格式不正确。'
-        : result && result.error === 'invalid_llm_url'
-          ? '大语言模型 Base URL 必须是有效的 HTTPS 地址。'
+      transcriptionSettingsNote.textContent = result && result.error === 'invalid_url'
+        ? 'Base URL 必须是有效的 HTTP / HTTPS 地址。'
+        : result && result.error === 'invalid_model'
+          ? '请输入模型名称。'
         : result && result.error === 'secure_storage_unavailable'
-          ? '当前系统安全存储不可用，可改用 DASHSCOPE_API_KEY 环境变量。'
+          ? '当前系统安全存储不可用，请改用 NOTCH_LLM_API_KEY 环境变量。'
           : '配置保存失败，请重试。';
       return;
     }
-    transcriptionConfig = result;
+    transcriptionConfig = { ...result, llmConfigured: result.configured, llmBaseUrl: result.baseUrl, llmModel: result.model };
     if (transcriptionApiKey) transcriptionApiKey.value = '';
     if (llmApiKey) llmApiKey.value = '';
     updateTranscriptionConfigUi();
     transcriptionSettingsNote.classList.remove('error');
     transcriptionSettingsNote.classList.add('success');
-    transcriptionSettingsNote.textContent = '已安全保存。为保护密钥，输入框不会回显明文；上方状态可确认是否已配置。';
+    transcriptionSettingsNote.textContent = result.modelAutoFetchFailed
+      ? '已保存。模型列表暂时无法获取，首次使用时会自动获取模型。'
+      : `已安全保存${result.model ? `，自动获取模型 ${result.model}` : ''}。为保护密钥，输入框不会回显明文；上方状态可确认是否已配置。`;
     transcriptionSettingsSave.textContent = '已保存';
     setTimeout(() => {
       if (transcriptionSettingsSave) transcriptionSettingsSave.textContent = '保存';
     }, 1200);
-    if (
-      transcriptionConfig.configured
-      && ['recording', 'paused'].includes(recordingStatus)
-      && !transcriptionStartPromise
-    ) {
-      stopSpeechRecognition();
-      transcriptionStatus = 'idle';
-      transcriptionStartPromise = startCloudTranscription();
-    }
-    updateRecordingUi();
     renderSettingsPanel();
   }
 
@@ -1649,6 +1726,69 @@
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsSave) transcriptionSettingsSave.addEventListener('click', saveTranscriptionSettings);
+  transcriptionSettingsTest?.addEventListener('click', async () => {
+    if (!window.notchAPI?.testAiConnection) return;
+    transcriptionSettingsTest.disabled = true;
+    transcriptionSettingsNote.classList.remove('error', 'success');
+    transcriptionSettingsNote.textContent = '正在测试上游模型…';
+    let testModel = llmModel?.value || '';
+    if (!testModel && window.notchAPI?.listAiModels) {
+      const discovered = await window.notchAPI.listAiModels({
+        apiKey: llmApiKey?.value || undefined,
+        baseUrl: llmBaseUrl?.value || '',
+      }).catch(() => ({ ok: false }));
+      if (discovered?.ok && discovered.recommended) {
+        testModel = discovered.recommended;
+        if (llmModel) {
+          if (![...llmModel.options].some((o) => o.value === testModel)) {
+            const opt = document.createElement('option');
+            opt.value = testModel;
+            opt.textContent = testModel;
+            llmModel.appendChild(opt);
+          }
+          llmModel.value = testModel;
+        }
+      }
+    }
+    const result = await window.notchAPI.testAiConnection({
+      apiKey: llmApiKey?.value || '',
+      baseUrl: llmBaseUrl?.value || '',
+      model: testModel,
+    }).catch(() => ({ ok: false }));
+    transcriptionSettingsTest.disabled = false;
+    transcriptionSettingsNote.classList.toggle('success', result?.ok === true);
+    transcriptionSettingsNote.classList.toggle('error', result?.ok !== true);
+    transcriptionSettingsNote.textContent = result?.ok
+      ? `连接成功：${testModel || result.model || transcriptionConfig.model || '模型已响应'}`
+      : '连接失败，请检查 Base URL、API Key 和模型名称。';
+  });
+  llmModelFetch?.addEventListener('click', async () => {
+    if (!window.notchAPI?.listAiModels) return;
+    llmModelFetch.disabled = true;
+    transcriptionSettingsNote.classList.remove('error', 'success');
+    transcriptionSettingsNote.textContent = '正在从 Base URL 获取可用模型…';
+    const result = await window.notchAPI.listAiModels({
+      apiKey: llmApiKey?.value || undefined,
+      baseUrl: llmBaseUrl?.value || '',
+    }).catch(() => ({ ok: false }));
+    llmModelFetch.disabled = false;
+    if (result?.ok && result.models?.length) {
+      if (llmModel) {
+        llmModel.innerHTML = [
+          '<option value="">请选择模型</option>',
+          ...result.models.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`),
+        ].join('');
+        llmModel.value = '';
+      }
+      transcriptionSettingsNote.classList.add('success');
+      transcriptionSettingsNote.textContent = `已获取 ${result.models.length} 个可用模型，请从下拉列表中选择。`;
+    } else {
+      transcriptionSettingsNote.classList.add('error');
+      transcriptionSettingsNote.textContent = result?.error === 'not_configured'
+        ? '请先填写 API Key 再自动获取。'
+        : '获取模型列表失败，请检查 Base URL 和 API Key 后重试。';
+    }
+  });
   if (transcriptionApiHelp) {
     transcriptionApiHelp.addEventListener('click', () => {
       window.notchAPI?.openExternal('https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key');
@@ -1734,7 +1874,7 @@
   });
   settingsDefaultTab?.addEventListener('change', async () => {
     if (!window.notchAPI?.setDefaultTab) return;
-    const previous = settingsAppSettings?.defaultTab || 'home';
+const previous = settingsAppSettings?.defaultTab || 'todo';
     settingsDefaultTab.disabled = true;
     const result = await window.notchAPI.setDefaultTab(settingsDefaultTab.value).catch(() => ({ ok: false }));
     settingsDefaultTab.disabled = false;
