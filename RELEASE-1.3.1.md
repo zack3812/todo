@@ -11,12 +11,12 @@
 3. **macOS**：按 ad-hoc 签名 + 不公证约定，保留检查 + 引导下载。
 4. **修复**：Windows 安装冒烟测试适配无首页界面（修复 v1.3.0 首次构建失败）。
 
-## 构建产物（构建完成后填入 SHA-256）
+## 构建产物（下载链接与 SHA-256）
 
 | 平台 | 安装包 | SHA-256 |
 | --- | --- | --- |
-| macOS (Apple Silicon) | TO-DO-Panel-1.3.1-arm64.dmg | 待构建完成后填入 |
-| Windows 10/11 x64 | TO-DO-Panel-1.3.1-windows-x64-setup.exe | 待构建完成后填入 |
+| macOS (Apple Silicon) | [TO-DO-Panel-1.3.1-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg) | [3fb4225ac4f6337aa7a629d86c8d080427dbe5195dd41a227e631fb94a41aaa0](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg.sha256) |
+| Windows 10/11 x64 | [TO-DO-Panel-1.3.1-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe) | [a301cc9357cf82224ca3a3325d9b62d15fddd75602dc55e5ee662b96ebbd2cb7](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe.sha256) |
 
 ## 自动升级 feed
 - latest.yml 已随 Release 发布，Windows 客户端通过 GitHub Releases 自动检查更新。

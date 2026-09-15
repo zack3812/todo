@@ -21,8 +21,8 @@
 
 | 平台 | 安装包 | SHA-256 |
 | --- | --- | --- |
-| macOS (Apple Silicon) | TO-DO-Panel-1.3.1-arm64.dmg | 见 Release 资产 |
-| Windows 10/11 x64 | TO-DO-Panel-1.3.1-windows-x64-setup.exe | 见 Release 资产 |
+| macOS (Apple Silicon) | [TO-DO-Panel-1.3.1-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg) | [3fb4225ac4f6337aa7a629d86c8d080427dbe5195dd41a227e631fb94a41aaa0](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg.sha256) |
+| Windows 10/11 x64 | [TO-DO-Panel-1.3.1-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe) | [a301cc9357cf82224ca3a3325d9b62d15fddd75602dc55e5ee662b96ebbd2cb7](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe.sha256) |
 
 > 首次安装：macOS 需在「系统设置 → 隐私与安全性」允许来自 App Store 和被认可开发者以外的应用；Windows 如出现 SmartScreen 提示，选择「仍要运行」。
 
