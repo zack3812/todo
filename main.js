@@ -1597,17 +1597,23 @@ ipcMain.handle('media:microphone', () => requestMacMediaAccess('microphone'));
 
 ipcMain.handle('tasks:recent', () => taskCompletionHistory);
 
-
-// ============ 自动更新（GitHub Release 检测）// ============ 自动更新（GitHub Release 检测 + electron-updater 下载安装）============
+// ============ 自动更新（多更新源探测：GitHub 直连 + 国内镜像）============
 const UPDATE_REPO = 'zack3812/todo';
 const UPDATE_INITIAL_DELAY_MS = 8000;
 const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
+const UPDATE_PROBE_TIMEOUT_MS = 4000;
+const UPDATE_SOURCES = [
+  { name: 'GitHub', base: 'https://github.com/zack3812/todo/releases/latest/download/' },
+  { name: '镜像 gh-proxy', base: 'https://gh-proxy.com/https://github.com/zack3812/todo/releases/latest/download/' },
+  { name: '镜像 ghfast', base: 'https://ghfast.top/https://github.com/zack3812/todo/releases/latest/download/' },
+];
 let updatePollTimer = null;
 let cachedUpdateState = null;
 let autoUpdater = null;
+let activeUpdateSource = null;
 
 function normalizeUpdateState(partial) {
-  cachedUpdateState = { mode: process.platform === 'win32' ? 'win-auto' : 'mac-link', ...cachedUpdateState, ...partial };
+  cachedUpdateState = { mode: process.platform === 'win32' ? 'win-auto' : 'mac-link', current: app.getVersion(), ...cachedUpdateState, ...partial };
   return cachedUpdateState;
 }
 
@@ -1637,7 +1643,29 @@ async function checkForUpdate() {
   });
 }
 
-// Windows：electron-updater 完整自动升级（下载进度 + 静默安装）。
+// 探测某个更新源：GET latest.yml 是否可达，返回 { name, base, latency } 或 null
+async function probeUpdateSource(source) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), UPDATE_PROBE_TIMEOUT_MS);
+  const start = Date.now();
+  try {
+    const res = await fetch(source.base + 'latest.yml', { signal: controller.signal, redirect: 'follow' });
+    if (!res.ok) return null;
+    const text = await res.text();
+    if (!/^version:\s*/m.test(text)) return null;
+    return { name: source.name, base: source.base, latency: Date.now() - start };
+  } catch { return null; }
+  finally { clearTimeout(timer); }
+}
+
+// 并行探测全部更新源，返回最快可达的一个（按声明顺序平局）
+async function selectUpdateSource() {
+  const probes = await Promise.all(UPDATE_SOURCES.map(probeUpdateSource));
+  const ok = probes.filter(Boolean).sort((a, b) => a.latency - b.latency);
+  return ok[0] || null;
+}
+
+// Windows：选源后接入 electron-updater（下载进度 + 静默安装）。
 // macOS 保持「检测 + 引导打开下载页」：Squirrel.Mac 自动更新要求有效代码签名，
 // 本项目按约定使用 ad-hoc 签名且不公证，不做全自动安装。
 if (process.platform === 'win32') {
@@ -1675,10 +1703,52 @@ if (process.platform === 'win32') {
   }
 }
 
+// Windows：探测并选中更新源，然后交给 electron-updater 检查
+async function winCheckForUpdates() {
+  if (!autoUpdater) return normalizeUpdateState({ status: 'error', error: '更新组件不可用' });
+  const source = await selectUpdateSource();
+  if (!source) {
+    sendUpdateState(normalizeUpdateState({ status: 'error', error: '无法连接更新源（GitHub 与镜像均不可达）' }));
+    return cachedUpdateState;
+  }
+  activeUpdateSource = source;
+  sendUpdateState(normalizeUpdateState({ status: 'checking', source: source.name, error: null }));
+  try {
+    autoUpdater.setFeedURL({ provider: 'generic', url: source.base });
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    sendUpdateState(normalizeUpdateState({ status: 'error', error: error?.message || String(error) }));
+  }
+  return cachedUpdateState;
+}
+
+// Windows：下载更新；失败时自动切下一个可达源重试
+async function winDownloadUpdate() {
+  if (!autoUpdater) return { ok: false, error: '更新组件不可用' };
+  const tried = new Set();
+  const first = activeUpdateSource || (await selectUpdateSource());
+  const order = first ? [first, ...UPDATE_SOURCES.filter((s) => s.base !== first.base)] : UPDATE_SOURCES;
+  for (const source of order) {
+    if (tried.has(source.base)) continue;
+    tried.add(source.base);
+    activeUpdateSource = source;
+    sendUpdateState(normalizeUpdateState({ status: 'downloading', source: source.name, error: null }));
+    try {
+      autoUpdater.setFeedURL({ provider: 'generic', url: source.base });
+      await autoUpdater.downloadUpdate();
+      return { ok: true, source: source.name };
+    } catch (error) {
+      const message = error?.message || String(error);
+      sendUpdateState(normalizeUpdateState({ status: 'error', error: '下载失败（' + source.name + '）：' + message, source: source.name }));
+    }
+  }
+  return { ok: false, error: '所有更新源下载均失败' };
+}
+
 function startUpdateChecker() {
   if (process.platform === 'win32' && autoUpdater) {
-    setTimeout(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, UPDATE_INITIAL_DELAY_MS);
-    updatePollTimer = setInterval(() => { void autoUpdater.checkForUpdates().catch(() => {}); }, UPDATE_POLL_MS);
+    setTimeout(() => { void winCheckForUpdates(); }, UPDATE_INITIAL_DELAY_MS);
+    updatePollTimer = setInterval(() => { void winCheckForUpdates(); }, UPDATE_POLL_MS);
   } else {
     setTimeout(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_INITIAL_DELAY_MS);
     updatePollTimer = setInterval(() => { void checkForUpdate().then(sendUpdateState); }, UPDATE_POLL_MS);
@@ -1690,18 +1760,12 @@ function stopUpdateChecker() {
 }
 
 ipcMain.handle('update:check', async () => {
-  if (process.platform === 'win32' && autoUpdater) {
-    sendUpdateState(normalizeUpdateState({ status: 'checking', error: null }));
-    try { return await autoUpdater.checkForUpdates(); }
-    catch (error) { return normalizeUpdateState({ status: 'error', error: error?.message || String(error) }); }
-  }
+  if (process.platform === 'win32' && autoUpdater) return winCheckForUpdates();
   return checkForUpdate();
 });
 ipcMain.handle('update:download', async () => {
   if (process.platform !== 'win32' || !autoUpdater) return { ok: false, error: 'unsupported' };
-  sendUpdateState(normalizeUpdateState({ status: 'downloading', error: null }));
-  try { await autoUpdater.downloadUpdate(); return { ok: true };
-  } catch (error) { sendUpdateState(normalizeUpdateState({ status: 'error', error: error?.message || String(error) })); return { ok: false, error: error?.message || String(error) }; }
+  return winDownloadUpdate();
 });
 ipcMain.handle('update:install', () => {
   if (process.platform !== 'win32' || !autoUpdater) return { ok: false, error: 'unsupported' };
@@ -1712,7 +1776,6 @@ ipcMain.handle('update:open', (event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) return shell.openExternal(url);
 });
 
-// 快捷链接：URL 走外部浏览器（仅 http/https），本地路径走系统打开（仅绝对路径）
 ipcMain.handle('shell:openExternal', (event, url) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     return shell.openExternal(url);

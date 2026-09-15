@@ -1,19 +1,17 @@
-# TO-DO Panel v1.3.1 发布说明
+# TO-DO Panel v1.3.2 发布说明
 
 **发布日期**：2026-09-15
 
 ## 本次更新
 
-### 新增：在线升级（Windows）
-- 应用内检测新版本，支持一键下载并实时显示下载进度（百分比 / 大小）。
-- 下载完成后点击「重启安装」自动完成升级，无需手动下载安装包。
-- 设置 → 版本与更新 中可见「下载更新 / 重启安装」按钮与进度条。
-
-### 变更
-- macOS 按既有约定（ad-hoc 签名、不公证）保留「检查更新 + 打开下载页」；Windows 走完整自动升级。
+### 新增：国内镜像加速下载
+- 检查更新时自动探测 GitHub 直连与国内加速镜像（gh-proxy / ghfast），选最快可达的下载源。
+- GitHub 不通时自动使用镜像下载，下载失败自动换源重试，国内环境不再卡在「检查更新失败」。
+- 检查更新时显示当前使用的更新源名称。
 
 ### 修复
-- 修复 v1.3.0 首次构建 Windows 安装验证失败（冒烟脚本适配删除首页后的界面）。
+- 检查更新失败时版本号错误显示为 "v"。
+- 「检查中」状态误显示「检查更新失败」。
 
 ## 下载
 
@@ -21,11 +19,11 @@
 
 | 平台 | 安装包 | SHA-256 |
 | --- | --- | --- |
-| macOS (Apple Silicon) | [TO-DO-Panel-1.3.1-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg) | [3fb4225ac4f6337aa7a629d86c8d080427dbe5195dd41a227e631fb94a41aaa0](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-arm64.dmg.sha256) |
-| Windows 10/11 x64 | [TO-DO-Panel-1.3.1-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe) | [a301cc9357cf82224ca3a3325d9b62d15fddd75602dc55e5ee662b96ebbd2cb7](https://github.com/zack3812/todo/releases/download/v1.3.1/TO-DO-Panel-1.3.1-windows-x64-setup.exe.sha256) |
+| macOS (Apple Silicon) | TO-DO-Panel-1.3.2-arm64.dmg | 见 Release 资产 |
+| Windows 10/11 x64 | TO-DO-Panel-1.3.2-windows-x64-setup.exe | 见 Release 资产 |
 
-> 首次安装：macOS 需在「系统设置 → 隐私与安全性」允许来自 App Store 和被认可开发者以外的应用；Windows 如出现 SmartScreen 提示，选择「仍要运行」。
+> 首次安装：macOS 需在「系统设置 → 隐私与安全性」允许；Windows 如出现 SmartScreen 提示，选择「仍要运行」。
 
 ## 自动升级说明（Windows）
 - 应用启动约 8 秒后自动检查新版本，之后每 6 小时检查一次；也可在设置页手动「检查更新」。
-- 发现新版本后点击「下载更新」，进度条显示下载状态；完成后点击「重启安装」自动完成升级。
+- 国内网络会自动使用镜像源下载，进度条显示下载状态；完成后点击「重启安装」自动完成升级。

@@ -1956,6 +1956,10 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
       setUpdateStatus('');
       return;
     }
+    if (status === 'checking') {
+      setUpdateStatus('正在检查更新…' + (state.source ? '（' + state.source + '）' : ''));
+      return;
+    }
     if (settingsUpdateProgress) settingsUpdateProgress.hidden = true;
     if (settingsUpdateCheck) {
       settingsUpdateCheck.hidden = status === 'downloaded';
