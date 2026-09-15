@@ -83,12 +83,9 @@ async function main() {
     else call?.resolve(value.result);
   });
   await send('Runtime.enable');
-  await until(() => evaluate('Boolean(window.NotchHome && window.NotchWorkspace && window.notchAPI)'), 'renderer initialization');
+  await until(() => evaluate('Boolean(window.NotchWorkspace && window.notchAPI)'), 'renderer initialization');
   assert.equal(await evaluate('window.notchAPI.platform'), 'win32');
   assert.equal(await evaluate('window.notchAPI.getAppSettings().then(s => s.features.clip)'), false);
-  assert.equal(await evaluate('document.getElementById("mirror-video").srcObject === null'), true);
-  assert.deepEqual(await evaluate('window.NotchHome.getVisibility().visibleIds'), ['pomodoro', 'recorder', 'mirror', 'note', 'commands']);
-  assert.equal(await evaluate('window.NotchHome.setModuleVisible("music", true).ok'), false);
   assert.equal(await evaluate('window.notchAPI.listWindows().then(r => r.error)'), 'unsupported');
   await evaluate('document.getElementById("notch").click()');
   await until(() => evaluate('document.getElementById("app").classList.contains("expanded")'), 'expand');
@@ -100,38 +97,17 @@ async function main() {
   assert.equal(await evaluate('window.notchAPI.setPanelShortcut("Control+Shift+F9").then(r => r.ok)'), true);
   assert.equal(await evaluate('window.notchAPI.setPanelShortcut("Space").then(r => r.ok)'), true);
   if (retained) {
-    assert.equal(await evaluate('localStorage.getItem("notch-home-note")'), 'Windows retained data');
+    assert.equal(await evaluate('JSON.parse(localStorage.getItem("notch-todo-data") || "{}").P0?.some((i) => i.text === "Windows smoke todo")'), true, 'todo survives reinstall');
     assert.equal(await evaluate('window.notchAPI.listCredentials().then(r => r.items.some(i => i.service === "CI smoke"))'), true);
     assert.equal(await evaluate('window.notchAPI.listCredentials().then(async r => (await window.notchAPI.getCredential(r.items.find(i => i.service === "CI smoke").id)).item.password)'), 'test-only-password');
-    const recordings = await evaluate('JSON.parse(localStorage.getItem("notch-recordings") || "[]")');
-    assert.ok(recordings.some((item) => item.audioPath), 'Saved recording survives reinstall');
-    assert.equal(await evaluate('window.notchAPI.readRecording(JSON.parse(localStorage.getItem("notch-recordings"))[0].audioPath).then(r => r.bytes.length > 0)'), true);
   } else {
     const credentials = await evaluate('window.notchAPI.saveCredential({service:"CI smoke",account:"test",password:"test-only-password"})');
     assert.equal(credentials.ok, true);
     assert.equal(await evaluate('window.notchAPI.listCredentials().then(r => r.items.some(i => Object.hasOwn(i, "password")))'), false);
     const vault = fs.readFileSync(path.join(profile, 'credentials.vault.json'), 'utf8');
     assert.ok(!vault.includes('test-only-password'), 'Password is encrypted at rest');
-    await evaluate(`(() => {
-      window.smokeTracks = [];
-      const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      navigator.mediaDevices.getUserMedia = async (...args) => {
-        const stream = await original(...args); window.smokeTracks.push(...stream.getTracks()); return stream;
-      };
-      document.getElementById('mirror-stage').click();
-    })()`);
-    await until(() => evaluate('window.smokeTracks.some(t => t.kind === "video" && t.readyState === "live")'), 'fake camera starts on click');
-    await evaluate('document.getElementById("tab-button-todo").click()');
-    await until(() => evaluate('window.smokeTracks.every(t => t.readyState === "ended")'), 'camera released leaving home');
-    await evaluate('document.getElementById("tab-button-home").click(); document.getElementById("record-start").click()');
-    await until(() => evaluate('window.NotchWorkspace.isRecordingActive() && window.smokeTracks.some(t => t.kind === "audio" && t.readyState === "live")'), 'fake recording starts');
-    await delay(1500);
-    await evaluate('document.getElementById("record-stop").click()');
-    await until(() => evaluate('!window.NotchWorkspace.isRecordingActive() && window.smokeTracks.every(t => t.readyState === "ended")'), 'microphone released');
-    await until(() => evaluate('JSON.parse(localStorage.getItem("notch-recordings") || "[]").some(r => r.audioPath)'), 'recording persisted');
-    assert.ok(fs.readdirSync(path.join(profile, 'recordings')).some((file) => fs.statSync(path.join(profile, 'recordings', file)).size > 0));
-    await evaluate('document.getElementById("home-note").value = "Windows retained data"; document.getElementById("home-note").dispatchEvent(new Event("input", {bubbles:true}))');
-    await until(() => evaluate('localStorage.getItem("notch-home-note") === "Windows retained data"'), 'note persisted');
+    await evaluate('document.getElementById("todo-add-open").click(); document.getElementById("todo-add-input").value = "Windows smoke todo"; document.getElementById("todo-add-create").click()');
+    await until(() => evaluate('JSON.parse(localStorage.getItem("notch-todo-data") || "{}").P0?.some((i) => i.text === "Windows smoke todo")'), 'todo persisted');
     await evaluate('window.notchAPI.saveWorkspaceData(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))');
   }
   const notify = await fetch('http://127.0.0.1:43821/notify/gpt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: 'Windows smoke complete', task_id: `smoke-${Date.now()}` }) });
@@ -140,7 +116,8 @@ async function main() {
   await until(() => evaluate('window.notchAPI.listTaskCompletions().then(r => r.some(i => i.title === "Windows smoke complete"))'), 'notification recorded');
   await evaluate('document.getElementById("tab-button-settings").click()');
   await delay(300);
-  assert.deepEqual(await evaluate('Array.from(document.querySelectorAll("[data-settings-home-module]")).filter(i => !i.closest("label").hidden).map(i => i.dataset.settingsHomeModule)'), ['pomodoro', 'recorder', 'mirror', 'note', 'commands']);
+  assert.equal(await evaluate('document.getElementById("settings-default-tab")?.options.length'), 6, 'settings default-tab lists the six visible tabs');
+  assert.equal(await evaluate('document.getElementById("settings-page")?.style.display !== "none"'), true, 'settings page is visible');
   const screenshot = await send('Page.captureScreenshot', { format: 'png' });
   fs.writeFileSync(path.join(evidence, retained ? 'retained.png' : 'windows-settings.png'), Buffer.from(screenshot.data, 'base64'));
   assert.deepEqual(exceptions, [], 'No uncaught renderer errors');
@@ -154,7 +131,7 @@ async function main() {
   await until(() => child.exitCode !== null, 'normal application exit');
   shutdown.close();
   assert.equal(child.exitCode, 0, 'Application exits cleanly before reinstall/uninstall');
-  fs.writeFileSync(path.join(evidence, retained ? 'retained.json' : 'smoke.json'), JSON.stringify({ ok: true, platform: process.platform, retained, profile, checks: ['real startup', 'five home modules', 'IPC', 'clipboard copy', 'auto-launch', 'shortcuts', 'encrypted credentials', 'fake camera release', 'fake recording release and persistence', 'notifications', 'settings'] }, null, 2));
+  fs.writeFileSync(path.join(evidence, retained ? 'retained.json' : 'smoke.json'), JSON.stringify({ ok: true, platform: process.platform, retained, profile, checks: ['real startup', 'IPC', 'clipboard copy', 'auto-launch', 'shortcuts', 'encrypted credentials', 'todo persistence', 'workspace retention', 'notifications', 'settings'] }, null, 2));
   console.log(`Windows application smoke passed (${retained ? 'retained profile' : 'fresh profile'})`);
 }
 main().catch(async (error) => {
@@ -163,7 +140,7 @@ main().catch(async (error) => {
   process.exitCode = 1;
   if (socket?.readyState === WebSocket.OPEN) {
     try {
-      console.error('Renderer state:', await evaluate('JSON.stringify({home:!!window.NotchHome,workspace:!!window.NotchWorkspace,api:!!window.notchAPI,ready:document.readyState,storage:Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))})'));
+      console.error('Renderer state:', await evaluate('JSON.stringify({workspace:!!window.NotchWorkspace,api:!!window.notchAPI,ready:document.readyState,storage:Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))})'));
       const screenshot = await send('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(evidence, 'failure.png'), Buffer.from(screenshot.data, 'base64'));
     } catch { /* Startup logs remain available even if the renderer has crashed. */ }
