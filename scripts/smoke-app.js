@@ -84,6 +84,9 @@ async function main() {
   });
   await send('Runtime.enable');
   await until(() => evaluate('Boolean(window.notchAPI)'), 'renderer initialization');
+  // 打包版 app.js 从 asar 读取执行较慢：notchAPI（preload）就绪时渲染层脚本可能尚未执行完，
+  // 过早 click 会因监听器未绑定而丢失事件。等 setMode 可用且初始 tab 渲染完成后再点击。
+  await until(() => evaluate('typeof window.setMode === "function" && Boolean(document.getElementById("tab-button-todo"))'), 'renderer app ready');
   assert.equal(await evaluate('window.notchAPI.platform'), 'win32');
   assert.equal(await evaluate('window.notchAPI.getAppSettings().then(s => s.features.clip)'), false);
   await evaluate('document.getElementById("notch").click()');
