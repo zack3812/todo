@@ -3958,9 +3958,12 @@ function formatHistorySpan(start, end) {
 
 function historyRowHtml(item) {
   const name = todoCategoryNames[item.priority] || item.priority;
+  const projectChip = typeof item.project === 'string' && item.project.trim()
+    ? `<span class="history-project" title="项目：${escapeHtml(item.project.trim())}">${escapeHtml(item.project.trim())}</span>` : '';
   return `<li class="history-item" data-id="${escapeHtml(item.id)}">
     <span class="dot dot-${item.priority}" title="${escapeHtml(name)}"></span>
     <span class="history-text" title="${escapeHtml(item.text)}">${escapeHtml(item.text)}</span>
+    ${projectChip}
     <span class="history-meta">${formatHistoryDate(item.createdAt)} → ${formatHistoryDate(item.completedAt)}<em>${formatHistorySpan(item.createdAt, item.completedAt)}</em></span>
     <button type="button" class="history-restore" data-action="restore" title="恢复为未完成" aria-label="恢复：${escapeHtml(item.text)}">↩</button>
     <button type="button" class="history-delete" data-action="delete" title="永久删除" aria-label="删除：${escapeHtml(item.text)}">×</button>
@@ -3997,7 +4000,7 @@ function renderTodoGantt() {
     const left = Math.max(0, Math.min(100, ((h.createdAt - min) / span) * 100));
     const width = Math.max(0.5, Math.min(100 - left, ((h.completedAt - h.createdAt) / span) * 100));
     return `<div class="gantt-row" data-priority="${h.priority}">
-      <span class="gantt-label" title="${escapeHtml(h.text)}">${escapeHtml(h.text)}</span>
+      <span class="gantt-label" title="${escapeHtml(h.text)}${typeof h.project === 'string' && h.project.trim() ? ' · ' + escapeHtml(h.project.trim()) : ''}">${escapeHtml(h.text)}</span>
       <span class="gantt-track"><i class="gantt-bar" style="left:${left}%;width:${width}%"></i></span>
       <span class="gantt-span">${formatHistorySpan(h.createdAt, h.completedAt)}</span>
     </div>`;
