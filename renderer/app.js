@@ -1334,10 +1334,6 @@ if (topbarEl) {
 window.addEventListener('blur', () => document.getElementById('app')?.classList.add('inactive'));
 window.addEventListener('focus', () => document.getElementById('app')?.classList.remove('inactive'));
 
-function initTab() {
-  setActiveTab('home');
-}
-
 document.querySelectorAll('.todo-category-name[data-category]').forEach((input) => {
   const finishCategoryEdit = () => {
     const categoryId = input.dataset.category;
@@ -3950,7 +3946,7 @@ if (window.notchAPI && typeof window.notchAPI.onNewClipEntry === 'function') {
 
 renderAll();
 renderClipList(); // 首屏确保 clip-list DOM 就绪时渲染一次（幂等）
-initTab();
+// 首页已删除：不再强制切换默认页（保持 todo），避免把 notch-active-tab 误写成 weekly。
 
 // ============ 待办历史：存档查看与完成跨度甘特图 ============
 function formatHistoryDate(ts) {

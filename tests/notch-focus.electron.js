@@ -211,16 +211,36 @@ async function main() {
     const settingsSurface = await window.webContents.executeJavaScript(`
       new Promise((resolve) => {
         const appSurface = document.getElementById('app');
-        appSurface.classList.remove('collapsed');
+        appSurface.classList.remove('collapsed', 'closing', 'opening');
         appSurface.classList.add('expanded');
         document.getElementById('tab-button-settings').click();
         setTimeout(() => {
           const page = document.getElementById('settings-page');
           const panel = document.querySelector('.panel');
-          const shellClipPath = getComputedStyle(panel, '::before').clipPath;
+          const expandedOutlineRule = (() => {
+            const walk = (list) => {
+              for (const rule of list) {
+                if (rule.selectorText === '#app.expanded .panel::before') {
+                  return rule.style.clipPath;
+                }
+                if (rule.cssRules) {
+                  const found = walk(rule.cssRules);
+                  if (found !== undefined) return found;
+                }
+              }
+              return undefined;
+            };
+            for (const sheet of document.styleSheets) {
+              let rules;
+              try { rules = sheet.cssRules; } catch (e) { continue; }
+              const found = walk(rules);
+              if (found !== undefined) return found;
+            }
+            return '';
+          })();
           resolve({
             contentClipPath: getComputedStyle(panel).clipPath,
-            shellOwnsExpandedOutline: shellClipPath !== 'none' && !shellClipPath.includes('calc'),
+            shellOwnsExpandedOutline: Boolean(expandedOutlineRule) && !expandedOutlineRule.includes('calc'),
             rightmostTab: document.querySelector('.tab[data-tab]:last-of-type')?.dataset.tab,
             activePanel: document.getElementById('tab-settings')?.classList.contains('active'),
             display: getComputedStyle(page).display,
@@ -246,7 +266,7 @@ async function main() {
 
     assert.deepEqual(settingsSurface, {
       contentClipPath: 'none',
-      shellOwnsExpandedOutline: process.platform === 'darwin',
+      shellOwnsExpandedOutline: true,
       rightmostTab: 'settings',
       activePanel: true,
       display: 'grid',
