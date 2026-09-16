@@ -177,6 +177,25 @@ body {
   border-radius: 9px;
   border: 1px solid rgba(255, 59, 48, 0.15);
 }
+.create-user-form {
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.create-user-form .field { margin-bottom: 0; flex: 1 1 180px; min-width: 0; }
+.create-user-form .btn-primary { flex: 0 0 auto; padding: 11px 22px; }
+.form-hint { font-size: 12px; color: var(--text-3); margin-top: 10px; }
+.ok-msg {
+  color: var(--accent);
+  font-size: 13px;
+  margin-top: 12px;
+  padding: 11px 14px;
+  background: var(--accent-dim);
+  border-radius: 9px;
+  border: 1px solid rgba(52, 199, 89, 0.15);
+}
 .login-footer { margin-top: 22px; font-size: 13px; color: var(--text-3); text-align: center; }
 
 /* ===== 主框架 ===== */

@@ -609,6 +609,8 @@
         window.NexusDeskSync.saveSyncConfig({ enabled });
         if (!enabled) {
           window.NexusDeskSync.disconnect();
+        } else if (window.NexusDeskSync.isLoggedIn()) {
+          window.NexusDeskSync.connect();
         }
       }
       refreshNexusdeskStatus();
@@ -627,11 +629,22 @@
       if (!empId || !pwd) return;
       nexusdeskSyncConnect.textContent = '登录中…';
       try {
-        await window.NexusDeskSync.login(empId, pwd);
+        const user = await window.NexusDeskSync.login(empId, pwd);
+        // 首次登录（默认密码=工号）：强制用户设置自己的新密码
+        if (user && user.mustChangePassword) {
+          const changed = await requestNewPassword(empId);
+          if (!changed) {
+            nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>';
+            nexusdeskSyncStatus.appendChild(document.createTextNode('请先设置新密码'));
+            refreshNexusdeskStatus();
+            return;
+          }
+        }
         window.NexusDeskSync.saveSyncConfig({ enabled: true });
         nexusdeskSyncEnabled.checked = true;
         nexusdeskConfigFields.hidden = false;
         await window.NexusDeskSync.connect();
+        if (window.NexusDeskSync.syncAllTodos) window.NexusDeskSync.syncAllTodos();
         nexusdeskPassword.value = '';
       } catch (e) {
         var msg = e.message || String(e);
@@ -647,6 +660,101 @@
       window.NexusDeskSync.logout();
       nexusdeskPassword.value = '';
       refreshNexusdeskStatus();
+    });
+  }
+
+  // 钉钉 ID 绑定（占位，后期版本开放）
+  const nexusdeskBindDingtalk = document.getElementById('nexusdesk-bind-dingtalk');
+  nexusdeskBindDingtalk?.addEventListener('click', () => {
+    alert('钉钉 ID 绑定将在后续版本开放，当前请先使用工号登录同步');
+  });
+
+  // 云端中枢（管理后台）
+  const nexusdeskOpenAdmin = document.getElementById('nexusdesk-open-admin');
+  nexusdeskOpenAdmin?.addEventListener('click', () => {
+    window.notchAPI?.openExternal('https://nexusdesk.dpdns.org');
+  });
+
+  // 首次登录强制改密弹窗：返回 true=已设置新密码，false=用户取消
+  function requestNewPassword(empId) {
+    return new Promise((resolve) => {
+      const mask = document.createElement('div');
+      mask.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(15,17,22,0.5);display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px);';
+      const card = document.createElement('div');
+      card.style.cssText = 'width:100%;max-width:400px;background:var(--surface,#ffffff);border-radius:16px;padding:26px;box-shadow:0 24px 70px rgba(0,0,0,0.22);box-sizing:border-box;';
+      const title = document.createElement('div');
+      title.style.cssText = 'font-size:18px;font-weight:700;margin-bottom:4px;color:var(--text,#1A1B1C);';
+      title.textContent = '修改初始密码';
+      const sub = document.createElement('div');
+      sub.style.cssText = 'font-size:13px;color:var(--text-3,#9aa1ad);margin-bottom:18px;';
+      sub.textContent = '首次登录请设置你自己的新密码（至少 4 位）';
+      const err = document.createElement('div');
+      err.style.cssText = 'font-size:13px;color:#ff3b30;margin-bottom:12px;display:none;';
+      function row(label, type, value) {
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'margin-bottom:14px;';
+        const l = document.createElement('label');
+        l.style.cssText = 'display:block;font-size:13px;font-weight:600;color:var(--text-2,#5c6270);margin-bottom:6px;';
+        l.textContent = label;
+        const inp = document.createElement('input');
+        inp.type = type;
+        inp.value = value || '';
+        inp.style.cssText = 'width:100%;background:var(--surface-2,#f5f6f8);border:1.5px solid transparent;color:var(--text,#1A1B1C);padding:11px 13px;border-radius:10px;font-size:14px;box-sizing:border-box;outline:none;font-family:inherit;';
+        inp.addEventListener('focus', () => { inp.style.borderColor = 'var(--accent,#34c759)'; });
+        inp.addEventListener('blur', () => { inp.style.borderColor = 'transparent'; });
+        wrap.appendChild(l);
+        wrap.appendChild(inp);
+        return { wrap, inp };
+      }
+      const oldRow = row('原密码（默认=工号）', 'password', empId);
+      const newRow = row('新密码', 'password', '');
+      const confirmRow = row('确认新密码', 'password', '');
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;gap:10px;margin-top:20px;';
+      function btn(text, primary, onClick) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = text;
+        b.style.cssText = 'flex:1;padding:11px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;' + (primary ? 'background:var(--accent,#34c759);color:#fff;border:none;' : 'background:var(--surface,#ffffff);color:var(--text-2,#5c6270);border:1px solid var(--border,#e6e8ec);');
+        b.addEventListener('click', onClick);
+        return b;
+      }
+      const okBtn = btn('确定', true, async () => {
+        const oldPwd = oldRow.inp.value;
+        const newPwd = newRow.inp.value;
+        const confirmPwd = confirmRow.inp.value;
+        if (!newPwd || newPwd.length < 4) { err.textContent = '新密码至少 4 位'; err.style.display = 'block'; return; }
+        if (newPwd !== confirmPwd) { err.textContent = '两次输入的新密码不一致'; err.style.display = 'block'; return; }
+        okBtn.disabled = true;
+        okBtn.textContent = '修改中…';
+        try {
+          await window.NexusDeskSync.changePassword(oldPwd, newPwd);
+          mask.remove();
+          resolve(true);
+        } catch (e) {
+          err.textContent = '修改失败: ' + (e.message || String(e));
+          err.style.display = 'block';
+          okBtn.disabled = false;
+          okBtn.textContent = '确定';
+        }
+      });
+      const cancelBtn = btn('取消', false, () => { mask.remove(); resolve(false); });
+      actions.appendChild(cancelBtn);
+      actions.appendChild(okBtn);
+      card.appendChild(title);
+      card.appendChild(sub);
+      card.appendChild(err);
+      card.appendChild(oldRow.wrap);
+      card.appendChild(newRow.wrap);
+      card.appendChild(confirmRow.wrap);
+      card.appendChild(actions);
+      mask.appendChild(card);
+      mask.addEventListener('mousedown', (e) => { if (e.target === mask) { mask.remove(); resolve(false); } });
+      [oldRow.inp, newRow.inp, confirmRow.inp].forEach((inp) => {
+        inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') okBtn.click(); });
+      });
+      document.body.appendChild(mask);
+      newRow.inp.focus();
     });
   }
 

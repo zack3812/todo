@@ -262,8 +262,49 @@ async function renderDashboard(app) {
     }).join('');
     document.getElementById('body').innerHTML =
       '<div class="page-title fade-up">成员</div><div class="page-sub fade-up fade-up-1">共 ' + (u2.users || []).length + ' 人，' + onlineCount + ' 人在线</div>' +
+      '<div class="panel fade-up fade-up-2">' +
+        '<div class="panel-head"><div class="panel-title">新建成员</div></div>' +
+        '<div class="create-user-form">' +
+          '<div class="field"><label>工号</label><input type="text" id="newEmpId" placeholder="如 005612" autocomplete="off"></div>' +
+          '<div class="field"><label>姓名</label><input type="text" id="newUserName" placeholder="如 张三" autocomplete="off"></div>' +
+          '<button class="btn-primary" id="createUserBtn" type="button">添加成员</button>' +
+        '</div>' +
+        '<div class="form-hint">默认密码=工号，成员首次登录后自行修改</div>' +
+        '<div id="createUserMsg"></div>' +
+      '</div>' +
       '<div class="panel fade-up fade-up-2"><table><thead><tr><th>工号</th><th>姓名</th><th>角色</th><th>状态</th></tr></thead><tbody>' + usersHtml2 + '</tbody></table></div>';
+    var cuBtn = document.getElementById('createUserBtn');
+    if (cuBtn) cuBtn.onclick = doCreateUser;
     return;
+  }
+
+  /* 新建成员（管理员） */
+  async function doCreateUser() {
+    var empId = document.getElementById('newEmpId').value.trim();
+    var name = document.getElementById('newUserName').value.trim();
+    var msg = document.getElementById('createUserMsg');
+    var btn = document.getElementById('createUserBtn');
+    if (!empId) {
+      if (msg) msg.innerHTML = '<div class="error-msg">工号不能为空</div>';
+      return;
+    }
+    btn.disabled = true; btn.textContent = '添加中…';
+    try {
+      var res = await api('/api/admin/users', { method: 'POST', body: JSON.stringify({ employeeId: empId, name: name }) });
+      if (res.error) {
+        if (msg) msg.innerHTML = '<div class="error-msg">' + esc(res.error) + '</div>';
+        btn.disabled = false; btn.textContent = '添加成员';
+        return;
+      }
+      if (msg) msg.innerHTML = '<div class="ok-msg">已创建 ' + esc(res.user.employeeId) + '，默认密码=工号，首次登录后自行修改</div>';
+      document.getElementById('newEmpId').value = '';
+      document.getElementById('newUserName').value = '';
+      btn.disabled = false; btn.textContent = '添加成员';
+      renderDashboard(document.getElementById('app'));
+    } catch (e) {
+      if (msg) msg.innerHTML = '<div class="error-msg">网络错误</div>';
+      btn.disabled = false; btn.textContent = '添加成员';
+    }
   }
 
   /* 我的待办（普通用户） */

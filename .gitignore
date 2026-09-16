@@ -20,6 +20,7 @@ website/dist/
 website/.vinext/
 website/.next/
 website/.wrangler/
+.wrangler/
 website/public/product-captures/raw/
 
 .env

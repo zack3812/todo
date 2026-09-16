@@ -9,11 +9,17 @@ routes = [{ pattern = "nexusdesk.dpdns.org/*", zone_name = "nexusdesk.dpdns.org"
 [vars]
 DINGTALK_APP_KEY = ""
 
-# KV 命名空间
-[[kv_namespaces]]
-binding = "USER_DB"
-id = "2b1e51098c2240ffa17a687cf3e6c18c"
+# D1 数据库（主存储：用户 / 会话 / 待办）
+[[d1_databases]]
+binding = "DB"
+database_name = "nexusdesk-db"
+database_id = "9281e7e5-1560-4514-b53b-fb1a465ee72f"
 
-[[kv_namespaces]]
-binding = "TODO_DB"
-id = "5a2777c3cb294a76898adceb278ec208"
+# WebSocket 枢纽（Durable Object）：单实例持有连接与在线状态，保证跨请求广播可靠送达
+[[durable_objects.bindings]]
+name = "WS_HUB"
+class_name = "WsHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["WsHub"]

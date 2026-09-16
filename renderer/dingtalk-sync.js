@@ -98,30 +98,6 @@ function notifyStatus() {
   for (const fn of statusListeners) { try { fn(s); } catch (e) {} }
 }
 
-let heartbeatTimer = null;
-
-function startHeartbeat() {
-  stopHeartbeat();
-  const cfg = getSyncConfig();
-  if (!cfg.enabled || !cfg.token) return;
-  const beat = async () => {
-    const c = getSyncConfig();
-    if (!c.token) return;
-    try {
-      await fetch(c.apiUrl + '/api/presence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + c.token },
-      });
-    } catch (e) {}
-  };
-  beat();
-  heartbeatTimer = setInterval(beat, 30000);
-}
-
-function stopHeartbeat() {
-  if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-}
-
 async function connect() {
   const cfg = getSyncConfig();
   if (!cfg.enabled || !cfg.token) return { ok: false, error: 'not_logged_in' };
@@ -136,14 +112,14 @@ async function connect() {
     scheduleReconnect();
     return { ok: false, error: String(e) };
   }
-  ws.onopen = () => { reconnectDelay = 1000; startHeartbeat(); notifyStatus(); };
+  ws.onopen = () => { reconnectDelay = 1000; notifyStatus(); };
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
       if (onRemoteTodoChange && msg.event && msg.todoId) onRemoteTodoChange(msg);
     } catch (e) {}
   };
-  ws.onclose = () => { ws = null; stopHeartbeat(); notifyStatus(); scheduleReconnect(); };
+  ws.onclose = () => { ws = null; notifyStatus(); scheduleReconnect(); };
   ws.onerror = () => {};
   notifyStatus();
   return { ok: true, status: 'connecting' };
@@ -151,7 +127,6 @@ async function connect() {
 
 function disconnect() {
   clearTimeout(reconnectTimer);
-  stopHeartbeat();
   if (ws) { ws.onclose = null; ws.close(); ws = null; notifyStatus(); }
 }
 
@@ -234,106 +209,8 @@ if (typeof window !== 'undefined') {
     getSyncConfig, saveSyncConfig, getConnectionStatus, onStatusChange,
     connect, disconnect, logout, login, changePassword, isLoggedIn, getCurrentUser,
     setRemoteTodoHandler, reportTodoCreated, reportTodoUpdated, reportTodoCompleted,
-    reportTodoDeleted, initSync, DEFAULT_API_URL, DEFAULT_WS_URL,
+    reportTodoDeleted, initSync, syncAllTodos, DEFAULT_API_URL, DEFAULT_WS_URL,
   };
-
-  // 直接绑定设置页按钮（不依赖 workspace.js）
-  function bindNexusdeskUI() {
-    var connectBtn = document.getElementById('nexusdesk-sync-connect');
-    var saveBtn = document.getElementById('nexusdesk-sync-save');
-    var enabledToggle = document.getElementById('nexusdesk-sync-enabled');
-    var statusEl = document.getElementById('nexusdesk-sync-status');
-    var cloudStatusEl = document.getElementById('nexusdesk-cloud-status');
-    var configFields = document.getElementById('nexusdesk-config-fields');
-    var userIdInput = document.getElementById('nexusdesk-user-id');
-    var pwdInput = document.getElementById('nexusdesk-password');
-
-    if (!connectBtn) return;
-
-    function refreshStatus() {
-      var cfg = getSyncConfig();
-      var loggedIn = !!cfg.token;
-      var wsStatus = getConnectionStatus();
-      var labelMap = { connected: '已连接', connecting: '连接中…', disconnected: '未登录', closing: '断开中…' };
-      if (statusEl) {
-        statusEl.innerHTML = '<span class="nexusdesk-dot"></span>' + (loggedIn ? (labelMap[wsStatus] || wsStatus) : '未登录');
-        statusEl.dataset.state = loggedIn ? wsStatus : 'disconnected';
-      }
-      if (cloudStatusEl) {
-        if (!loggedIn) {
-          cloudStatusEl.textContent = '未连接';
-          cloudStatusEl.style.color = '';
-        } else if (wsStatus === 'connecting') {
-          cloudStatusEl.textContent = '连接中…';
-          cloudStatusEl.style.color = '#ff9500';
-        } else if (wsStatus === 'connected') {
-          cloudStatusEl.textContent = '同步完成';
-          cloudStatusEl.style.color = '#34c759';
-        } else {
-          cloudStatusEl.textContent = '连接断开';
-          cloudStatusEl.style.color = '#ff3b30';
-        }
-      }
-      if (connectBtn) connectBtn.textContent = loggedIn && wsStatus === 'connected' ? '断开' : '登录并连接';
-      if (saveBtn) saveBtn.style.display = loggedIn ? 'none' : '';
-      if (enabledToggle) enabledToggle.checked = cfg.enabled === true;
-      if (configFields) configFields.hidden = !cfg.enabled;
-      if (userIdInput && !userIdInput.value) userIdInput.value = cfg.employeeId || '';
-    }
-
-    enabledToggle?.addEventListener('change', function () {
-      var enabled = enabledToggle.checked;
-      saveSyncConfig({ enabled: enabled });
-      if (configFields) configFields.hidden = !enabled;
-      if (!enabled) disconnect();
-      else if (getSyncConfig().token) connect();
-    });
-
-    connectBtn?.addEventListener('click', async function () {
-      var cfg = getSyncConfig();
-      if (cfg.token) {
-        logout();
-        refreshStatus();
-        return;
-      }
-      var empId = (userIdInput?.value || '').trim();
-      var pwd = pwdInput?.value || '';
-      if (!empId || !pwd) {
-        return;
-      }
-      connectBtn.textContent = '登录中…';
-      try {
-        await login(empId, pwd);
-        saveSyncConfig({ enabled: true });
-        await connect();
-        if (pwdInput) pwdInput.value = '';
-        syncAllTodos();
-      } catch (e) {
-        alert('登录失败: ' + (e.message || e));
-      }
-      refreshStatus();
-    });
-
-    saveBtn?.addEventListener('click', function () {
-      logout();
-      if (pwdInput) pwdInput.value = '';
-      refreshStatus();
-    });
-
-    onStatusChange(refreshStatus);
-    refreshStatus();
-
-    var openAdminBtn = document.getElementById('nexusdesk-open-admin');
-    if (openAdminBtn) openAdminBtn.onclick = function () {
-      window.notchAPI?.openExternal('https://nexusdesk.dpdns.org');
-    };
-  }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindNexusdeskUI);
-  } else {
-    bindNexusdeskUI();
-  }
 }
 
 function syncAllTodos() {
