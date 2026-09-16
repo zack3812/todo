@@ -320,7 +320,13 @@ function weekStart(value = Date.now()) {
 }
 
 function weekKey(value = Date.now()) {
-  return weekStart(value).toISOString().slice(0, 10);
+  // toISOString() 会按 UTC 截取日期：东八区凌晨会被归到前一天（如周一 00:30 变成周日 key）。
+  // 用本地年月日拼接，保证周 key 与界面显示的周范围一致。
+  const d = weekStart(value);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 function previousWeekKey(value = Date.now()) {
@@ -1129,6 +1135,10 @@ function applyTabDom(name) {
   });
   positionIndicator();
   requestAnimationFrame(() => requestAnimationFrame(positionIndicator));
+  if (name === 'weekly' && typeof weeklySelectedKey !== 'undefined' && weeklySelectedKey !== null) {
+    weeklySelectedKey = null;
+    renderWeeklySummary();
+  }
   document.dispatchEvent(new CustomEvent('notch:tabchange', { detail: { tab: name } }));
 }
 
@@ -1798,7 +1808,7 @@ let weeklySelectedKey = null;
 const DEFAULT_WEEKLY_PROMPT = '你是个人工作复盘助手。结合上周总结和本周待办，生成简洁、具体的中文周报。只返回 JSON：{"progress":"本周进展","status":"整体进度","nextWeek":"下周待办"}。每个字段使用 Markdown，避免空泛表扬。';
 
 function renderWeeklySummary() {
-  const key = weeklySelectedKey || weekKey();
+  const key = weeklySelectedKey && weeklySummaries[weeklySelectedKey] ? weeklySelectedKey : weekKey();
   weeklySelectedKey = key;
   const summary = weeklySummaries[key];
   const fallbackLabel = weekLabel(new Date(`${key}T00:00:00`));
