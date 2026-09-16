@@ -84,7 +84,7 @@ function createForegroundMediaPermissionCoordinator(defaults = {}) {
   let restoreAlwaysOnTop = false;
 
   return {
-    async run({ owner, activate = defaults.activate, track = defaults.track, request }) {
+    async run({ owner, activate = defaults.activate, track = defaults.track, request, restoreLevel = 'screen-saver' }) {
       if (typeof request !== 'function') throw new TypeError('request must be a function');
       const updateGuard = typeof track === 'function' ? track : () => {};
       const targetWindow = owner && typeof owner.isDestroyed === 'function' && !owner.isDestroyed()
@@ -120,7 +120,7 @@ function createForegroundMediaPermissionCoordinator(defaults = {}) {
             layerOwner = null;
             restoreAlwaysOnTop = false;
             if (shouldRestore && targetToRestore && !targetToRestore.isDestroyed()) {
-              targetToRestore.setAlwaysOnTop(true, 'screen-saver');
+              targetToRestore.setAlwaysOnTop(true, restoreLevel);
             }
           }
         } finally {

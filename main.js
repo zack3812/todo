@@ -394,6 +394,20 @@ function cancelCollapseWatchdog() {
   }
 }
 
+// 折叠态必须保持 screen-saver 级别：折叠条完全落在 macOS 菜单栏拦截带内，
+// 只有该级别窗口的点击不被菜单栏拦截（见 NOTCH_LIP 注释）。
+// 展开态降到 floating：screen-saver 级别会压住系统输入法候选框（IMK 候选窗口
+// 位于 popup-menu 级别之上），中文输入时看不到候选词；floating 仍高于普通窗口，
+// 配合 setVisibleOnAllWorkspaces 保持"常驻置顶"，输入法候选框可正常浮出。
+function applyAlwaysOnTopLevel(mode) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (process.platform === 'darwin') {
+    mainWindow.setAlwaysOnTop(true, mode === 'expanded' ? 'floating' : 'screen-saver');
+  } else {
+    mainWindow.setAlwaysOnTop(true);
+  }
+}
+
 function applyMode(mode, display) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
   cancelCollapseWatchdog();
@@ -402,6 +416,7 @@ function applyMode(mode, display) {
   // 展开面板需要完整交互，始终可点。
   mainWindow.setIgnoreMouseEvents(mode === 'collapsed', { forward: true });
   currentMode = mode;
+  applyAlwaysOnTopLevel(mode);
   if (mode === 'expanded') hideWhenCollapsed = false;
   if (mode === 'collapsed' && hideWhenCollapsed) {
     hideWhenCollapsed = false;
@@ -1027,7 +1042,7 @@ function createWindow() {
 
   installLocalWebContentsGuards(mainWindow.webContents);
 
-  mainWindow.setAlwaysOnTop(true, 'screen-saver');
+  mainWindow.setAlwaysOnTop(true, 'screen-saver'); // 初始折叠态；展开/折叠切换时由 applyMode 校正
   if (process.platform === 'darwin') mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   if (process.platform === 'win32') mainWindow.setMenu(null);
 
@@ -1566,6 +1581,7 @@ async function requestMacMediaAccess(mediaType) {
     owner: mainWindow,
     // screen-saver 层级会压住 macOS 的 TCC 授权气泡。请求前临时降到普通层，
     // 并把应用激活，让“不允许 / 允许”确实处在可点击的最前方。
+    restoreLevel: currentMode === 'expanded' ? 'floating' : 'screen-saver',
     activate: () => app.focus({ steal: true }),
     track: (delta) => {
       if (delta > 0 && mediaType === 'camera') mediaPermissionBatchHadCamera = true;

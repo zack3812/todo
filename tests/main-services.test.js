@@ -36,6 +36,36 @@ const {
   fetchLatestRelease,
 } = require('../main-services');
 
+test('media permission prompts restore to a caller-provided layer level', async () => {
+  const events = [];
+  let alwaysOnTop = true;
+  const owner = {
+    isDestroyed: () => false,
+    isAlwaysOnTop: () => alwaysOnTop,
+    setAlwaysOnTop(value, level) {
+      alwaysOnTop = value;
+      events.push(['top', value, level]);
+    },
+    focus() {},
+  };
+
+  const coordinator = createForegroundMediaPermissionCoordinator({
+    activate() {},
+    track() {},
+  });
+  await coordinator.run({
+    owner,
+    request: async () => true,
+    restoreLevel: 'floating',
+  });
+
+  assert.equal(alwaysOnTop, true);
+  assert.deepEqual(events, [
+    ['top', false, undefined],
+    ['top', true, 'floating'],
+  ]);
+});
+
 test('media permission prompts temporarily leave the screen-saver window layer', async () => {
   const events = [];
   let alwaysOnTop = true;
