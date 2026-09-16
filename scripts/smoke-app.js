@@ -83,7 +83,7 @@ async function main() {
     else call?.resolve(value.result);
   });
   await send('Runtime.enable');
-  await until(() => evaluate('Boolean(window.NotchWorkspace && window.notchAPI)'), 'renderer initialization');
+  await until(() => evaluate('Boolean(window.notchAPI)'), 'renderer initialization');
   assert.equal(await evaluate('window.notchAPI.platform'), 'win32');
   assert.equal(await evaluate('window.notchAPI.getAppSettings().then(s => s.features.clip)'), false);
   assert.equal(await evaluate('window.notchAPI.listWindows().then(r => r.error)'), 'unsupported');
@@ -140,7 +140,7 @@ main().catch(async (error) => {
   process.exitCode = 1;
   if (socket?.readyState === WebSocket.OPEN) {
     try {
-      console.error('Renderer state:', await evaluate('JSON.stringify({workspace:!!window.NotchWorkspace,api:!!window.notchAPI,ready:document.readyState,storage:Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))})'));
+      console.error('Renderer state:', await evaluate('JSON.stringify({api:!!window.notchAPI,ready:document.readyState,storage:Object.fromEntries(Object.keys(localStorage).map(k=>[k,localStorage.getItem(k)]))})'));
       const screenshot = await send('Page.captureScreenshot', { format: 'png' });
       fs.writeFileSync(path.join(evidence, 'failure.png'), Buffer.from(screenshot.data, 'base64'));
     } catch { /* Startup logs remain available even if the renderer has crashed. */ }
