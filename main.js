@@ -2230,19 +2230,7 @@ async function scanCurrentWindows() {
   }
 }
 
-ipcMain.handle('windows:list', async () => {
-  return scanCurrentWindows();
-});
 
-ipcMain.handle('windows:focus', async (event, windowId) => {
-  const target = windowScanCache.get(windowId);
-  if (!target || process.platform !== 'darwin') return false;
-  try {
-    return (await runJxa(WINDOW_FOCUS_JXA, [target.pid, target.title, target.windowIndex])) === 'true';
-  } catch (error) {
-    return false;
-  }
-});
 
 function taskWindowMatchScore(notification, target) {
   const project = String(notification && notification.project || '').trim().toLocaleLowerCase();
@@ -2633,36 +2621,7 @@ async function sendSodaShortcut(action) {
   }
 }
 
-ipcMain.handle('music:status', async () => {
-  const installed = fs.existsSync(SODA_MUSIC_APP);
-  const running = installed ? await sodaMusicRunning() : false;
-  if (!running) sodaMusicPlaying = false;
-  return {
-    installed,
-    running,
-    sessionActive: running,
-    playing: running && sodaMusicPlaying,
-    title: '',
-    artist: '',
-    icon: installed ? await readSystemAppIconNow(SODA_MUSIC_APP) : null,
-  };
-});
 
-ipcMain.handle('music:control', async (event, action) => {
-  if (process.platform !== 'darwin') return { ok: false, error: 'unsupported' };
-  if (!fs.existsSync(SODA_MUSIC_APP)) return { ok: false, error: 'not_installed' };
-  const result = await controlSodaMusic(action, {
-    isRunning: sodaMusicRunning,
-    launch: launchSodaMusic,
-    sendShortcut: sendSodaShortcut,
-  }, sodaMusicPlaying);
-  if (result && result.ok) sodaMusicPlaying = result.playing;
-  if (result && result.ok && mainWindow && !mainWindow.isDestroyed() && currentMode === 'expanded') {
-    if (!mainWindow.isVisible()) mainWindow.show();
-    mainWindow.focus();
-  }
-  return result;
-});
 
 // LLM 配置兜底（笔记命名 / 周报总结）：读取旧转写设置文件中保存的 LLM 字段。
 function getTranscriptionSettingsPath() {

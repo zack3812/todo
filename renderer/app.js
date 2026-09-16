@@ -2422,154 +2422,6 @@ document.addEventListener('notch:tabchange', (event) => {
   if (event.detail?.tab === 'todo') refreshDefaultTodoDeadlines();
 });
 
-function pad2(n) {
-  return n < 10 ? '0' + n : String(n);
-}
-
-// ============ 首页 · 番茄钟 ============
-const pomodoroToggle = document.getElementById('pomodoro-toggle');
-const pomodoroReset = document.getElementById('pomodoro-reset');
-const homePomodoro = document.getElementById('home-pomodoro');
-const pomodoroEndTime = document.getElementById('pomodoro-end-time');
-const pomodoroInputs = [
-  document.getElementById('pomodoro-minutes'),
-  document.getElementById('pomodoro-seconds'),
-];
-const POMODORO_DURATION_KEY = 'dynamic-panel-pomodoro-duration-v3';
-let savedPomodoroParts = (() => {
-  try {
-    const value = JSON.parse(localStorage.getItem(POMODORO_DURATION_KEY) || 'null');
-    if (Array.isArray(value) && value.length === 3) {
-      return [
-        Math.max(0, Math.min(60, (Number(value[0]) || 0) * 60 + (Number(value[1]) || 0))),
-        Math.max(0, Math.min(60, Number(value[2]) || 0)),
-      ];
-    }
-    if (Array.isArray(value) && value.length === 2) {
-      return value.map((part) => Math.max(0, Math.min(60, Number(part) || 0)));
-    }
-  } catch (error) {}
-  return [5, 0];
-})();
-let pomodoroConfiguredSeconds = savedPomodoroParts[0] * 60 + savedPomodoroParts[1];
-let pomodoroRemaining = pomodoroConfiguredSeconds;
-let pomodoroRunning = false;
-let pomodoroStarted = false;
-let pomodoroTimer = null;
-
-function secondsToParts(seconds) {
-  const safe = Math.max(0, Math.floor(seconds));
-  return [Math.min(60, Math.floor(safe / 60)), safe % 60];
-}
-
-function setPomodoroInputs(parts) {
-  pomodoroInputs.forEach((input, index) => {
-    if (!input) return;
-    input.value = String(parts[index]).padStart(2, '0');
-    input.readOnly = pomodoroRunning;
-  });
-}
-
-function formatPomodoroEndTime(seconds) {
-  const target = new Date(Date.now() + Math.max(0, seconds) * 1000);
-  return `${pad2(target.getHours())}:${pad2(target.getMinutes())}`;
-}
-
-function renderPomodoro() {
-  setPomodoroInputs(pomodoroStarted ? secondsToParts(pomodoroRemaining) : savedPomodoroParts);
-  if (pomodoroEndTime) {
-    pomodoroEndTime.textContent = formatPomodoroEndTime(pomodoroStarted ? pomodoroRemaining : pomodoroConfiguredSeconds);
-  }
-  const remainingRatio = pomodoroStarted
-    ? pomodoroRemaining / Math.max(1, pomodoroConfiguredSeconds)
-    : 1;
-  homePomodoro?.style.setProperty('--pomodoro-progress', String(Math.max(0, Math.min(1, remainingRatio))));
-  if (pomodoroToggle) {
-    pomodoroToggle.innerHTML = pomodoroRunning
-      ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h3v10H8zM14 7h3v10h-3z" /></svg>'
-      : '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 8 5-8 5z" /></svg>';
-    pomodoroToggle.setAttribute('aria-label', pomodoroRunning ? '暂停番茄钟' : '开始番茄钟');
-  }
-  if (pomodoroReset) pomodoroReset.hidden = !pomodoroStarted;
-  homePomodoro?.setAttribute('data-state', pomodoroRunning ? 'running' : (pomodoroStarted ? 'paused' : 'idle'));
-}
-
-function commitPomodoroInputs() {
-  if (pomodoroRunning) return;
-  savedPomodoroParts = pomodoroInputs.map((input) => Math.max(0, Math.min(60, Number.parseInt(input?.value || '0', 10) || 0)));
-  pomodoroConfiguredSeconds = savedPomodoroParts[0] * 60 + savedPomodoroParts[1];
-  pomodoroRemaining = pomodoroConfiguredSeconds;
-  pomodoroStarted = false;
-  localStorage.setItem(POMODORO_DURATION_KEY, JSON.stringify(savedPomodoroParts));
-  renderPomodoro();
-}
-
-pomodoroInputs.forEach((input) => {
-  if (!input) return;
-  input.addEventListener('focus', () => input.select());
-  input.addEventListener('input', () => {
-    input.value = input.value.replace(/\D/g, '').slice(0, 2);
-  });
-  input.addEventListener('blur', commitPomodoroInputs);
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      commitPomodoroInputs();
-      input.blur();
-    }
-  });
-  input.addEventListener('wheel', (event) => {
-    if (pomodoroRunning) return;
-    event.preventDefault();
-    const current = Number.parseInt(input.value || '0', 10) || 0;
-    input.value = String(Math.max(0, Math.min(60, current + (event.deltaY < 0 ? 1 : -1)))).padStart(2, '0');
-    commitPomodoroInputs();
-    input.focus({ preventScroll: true });
-    input.select();
-  }, { passive: false });
-});
-
-pomodoroToggle?.addEventListener('click', () => {
-  if (!pomodoroStarted) {
-    commitPomodoroInputs();
-    if (pomodoroConfiguredSeconds <= 0) {
-      showStatusToast('请先设置倒计时时间');
-      return;
-    }
-    pomodoroStarted = true;
-    pomodoroRemaining = pomodoroConfiguredSeconds;
-  }
-  pomodoroRunning = !pomodoroRunning;
-  clearInterval(pomodoroTimer);
-  pomodoroTimer = null;
-  if (pomodoroRunning) {
-    pomodoroTimer = setInterval(() => {
-      pomodoroRemaining -= 1;
-      if (pomodoroRemaining <= 0) {
-        const completedMinutes = Math.max(1, Math.round(pomodoroConfiguredSeconds / 60));
-        pomodoroRemaining = pomodoroConfiguredSeconds;
-        pomodoroRunning = false;
-        pomodoroStarted = false;
-        clearInterval(pomodoroTimer);
-        pomodoroTimer = null;
-        showStatusToast(`${completedMinutes} 分钟专注完成`);
-        window.notchAPI?.notifyPomodoro?.(completedMinutes).catch(() => {});
-      }
-      renderPomodoro();
-    }, 1000);
-  }
-  renderPomodoro();
-});
-
-pomodoroReset?.addEventListener('click', () => {
-  clearInterval(pomodoroTimer);
-  pomodoroTimer = null;
-  pomodoroRunning = false;
-  pomodoroStarted = false;
-  pomodoroRemaining = pomodoroConfiguredSeconds;
-  renderPomodoro();
-});
-renderPomodoro();
 
 // ============ 首页 · Markdown 速记 ============
 // textarea 中的原始 Markdown 始终是唯一数据源；预览只用 DOM API + textContent 构建，
@@ -3518,149 +3370,6 @@ if (notePreview) {
 }
 
 // ============ 距离感应 Dock 悬浮 ============
-function bindDockSurface(surface, selector, maxScale = 1.14) {
-  if (!surface) return;
-  let frame = null;
-  const reset = () => {
-    surface.querySelectorAll(selector).forEach((item) => {
-      item.style.removeProperty('--dock-scale');
-      item.style.removeProperty('--dock-lift');
-      item.style.removeProperty('--dock-glow');
-    });
-  };
-  surface.addEventListener('pointermove', (event) => {
-    if (frame) cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(() => {
-      frame = null;
-      surface.querySelectorAll(selector).forEach((item) => {
-        const rect = item.getBoundingClientRect();
-        const centerX = rect.left + rect.width / 2;
-        const centerY = rect.top + rect.height / 2;
-        const distance = Math.hypot(event.clientX - centerX, event.clientY - centerY);
-        const radius = Math.max(72, Math.min(150, rect.width * 2.2));
-        const strength = Math.max(0, 1 - distance / radius) ** 2;
-        item.style.setProperty('--dock-scale', (1 + (maxScale - 1) * strength).toFixed(3));
-        item.style.setProperty('--dock-lift', `${(-5 * strength).toFixed(2)}px`);
-        item.style.setProperty('--dock-glow', strength.toFixed(3));
-      });
-    });
-  });
-  surface.addEventListener('pointerleave', reset);
-}
-
-[
-  ['#window-list', '.window-item', 1.12],
-].forEach(([surfaceSelector, itemSelector, scale]) => {
-  document.querySelectorAll(surfaceSelector).forEach((surface) => {
-    bindDockSurface(surface, itemSelector, scale);
-  });
-});
-
-// ============ 首页 · 收藏剪贴 ============
-const clipfavListEl = document.getElementById('clipfav-list');
-
-function renderClipFavs() {
-  if (!clipfavListEl) return;
-  // 脏标记：clipHistory / clipFavorites / clipImageCache 均未变则跳过重建
-  if (clipDataVersion === lastRenderedFavsVersion) return;
-
-  // 按 clipFavorites 顺序取条目（过滤掉已删的）
-  const favEntries = clipFavorites
-    .map((id) => clipHistory.find((e) => e.id === id))
-    .filter(Boolean);
-
-  if (!favEntries.length) {
-    clipfavListEl.innerHTML =
-      '<button class="clipfav-empty" type="button" data-action="goto-clip">' +
-      '去"剪贴板"Tab 给常用记录加星 →' +
-      '</button>';
-    lastRenderedFavsVersion = clipDataVersion; // 空态也标记已渲染
-    return;
-  }
-
-  // 渲染每条收藏
-  clipfavListEl.innerHTML = favEntries
-    .map((entry) => {
-      const safeId = escapeHtml(entry.id);
-
-      if (entry.type === 'image') {
-        const dataUrl = entry.imagePath ? clipImageCache.get(entry.imagePath) : null;
-        const mediaHtml = dataUrl
-          ? `<img class="clipfav-thumb" src="${escapeHtml(dataUrl)}" alt="图片" draggable="false"/>`
-          : `<div class="clipfav-thumb-placeholder">图</div>`;
-        return (
-          `<div class="clipfav-item clip-type-image" data-id="${safeId}" role="button" tabindex="0" title="图片">` +
-          mediaHtml +
-          `<span class="clipfav-text">图片</span>` +
-          `</div>`
-        );
-      }
-
-      // text | url
-      const isUrl = entry.type === 'url' || (entry.text && CLIP_URL_RE.test(entry.text));
-      const typeClass = isUrl ? 'clip-type-url' : 'clip-type-text';
-      let preview = entry.text || '';
-      if (isUrl) {
-        try {
-          preview = new URL(entry.text).hostname || entry.text;
-        } catch (_) {
-          preview = entry.text || '';
-        }
-      }
-      const safePreview = escapeHtml(preview);
-      const safeTitle = escapeHtml(entry.text || '');
-      return (
-        `<div class="clipfav-item ${typeClass}" data-id="${safeId}" role="button" tabindex="0" title="${safeTitle}">` +
-        `<span class="clipfav-text">${safePreview}</span>` +
-        `</div>`
-      );
-    })
-    .join('');
-  lastRenderedFavsVersion = clipDataVersion; // 标记本次渲染版本
-
-  // 按需预加载图片缩略图（命中后二次渲染刷新）
-  // preloadClipImage 会自增 clipDataVersion，确保二次渲染不被脏标记挡掉
-  const missingImageEntries = favEntries.filter(
-    (e) => e.type === 'image' && e.imagePath && !clipImageCache.has(e.imagePath)
-  );
-  if (missingImageEntries.length > 0) {
-    Promise.all(missingImageEntries.map((e) => preloadClipImage(e.imagePath))).then(() => {
-      const anyLoaded = missingImageEntries.some((e) => clipImageCache.has(e.imagePath));
-      if (anyLoaded) renderClipFavs();
-    });
-  }
-}
-
-if (clipfavListEl) {
-  clipfavListEl.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    // 空态：跳转 clip Tab
-    if (e.target.closest('[data-action="goto-clip"]')) {
-      setActiveTab('clip');
-      return;
-    }
-    // 条目点击：复制
-    const item = e.target.closest('.clipfav-item[data-id]');
-    if (item) {
-      const id = item.dataset.id;
-      if (await copyClipEntry(id)) {
-        item.classList.add('copied');
-        setTimeout(() => item.classList.remove('copied'), 800);
-      }
-    }
-  });
-  clipfavListEl.addEventListener('keydown', async (e) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    if (e.repeat) return;
-    const item = e.target.closest('.clipfav-item[data-id]');
-    if (!item) return;
-    e.preventDefault();
-    if (await copyClipEntry(item.dataset.id)) {
-      item.classList.add('copied');
-      setTimeout(() => item.classList.remove('copied'), 800);
-    }
-  });
-}
 
 // ============ 剪贴板历史 ============
 const CLIP_HISTORY_KEY = 'notch-clip-history';
@@ -3730,12 +3439,10 @@ let clipFavorites = loadClipFavorites();
 let clipFilter = 'all'; // all | text | image | faved
 const clipImageCache = new Map(); // imagePath -> dataUrl，仅内存
 
-// 脏标记 —— 单调递增版本号：凡影响 renderClipList / renderClipFavs 输出的变更都自增。
 // 宁可多自增（多一次重建）也不能漏（界面不更新）。
 // 注意：preloadClipImage 在图片入缓存后也要自增，确保二次渲染不被脏标记挡掉。
 let clipDataVersion = 0;
 let lastRenderedClipVersion = -1; // renderClipList 上次渲染时的版本号
-let lastRenderedFavsVersion = -1; // renderClipFavs 上次渲染时的版本号
 
 const clipListEl = document.getElementById('clip-list');
 const clipToolbarEl = document.getElementById('clip-toolbar');
@@ -3795,7 +3502,6 @@ async function addClipEntry(raw) {
 
   clipDataVersion++; // clipHistory 已变（含 FIFO 淘汰）
   renderClipList();
-  renderClipFavs();
 }
 
 function formatClipTime(ts) {
@@ -3982,7 +3688,6 @@ function toggleClipFavorite(id, focusContext = null) {
   clipDataVersion++; // clipFavorites 已变
   saveClipFavorites(clipFavorites);
   renderClipList();
-  renderClipFavs();
   if (focusContext && focusContext.restoreFocus) {
     const sameItemButton = clipListEl && clipListEl.querySelector(
       `.clip-item[data-id="${CSS.escape(id)}"] [data-action="fav"]`
@@ -4006,7 +3711,6 @@ function deleteClipEntry(id, focusContext = null) {
   saveClipHistory(clipHistory);
   saveClipFavorites(clipFavorites);
   renderClipList();
-  renderClipFavs();
   if (focusContext && focusContext.restoreFocus) {
     focusClipControl([focusContext.nextId, focusContext.previousId]);
   }
@@ -4023,7 +3727,6 @@ function deleteClipEntry(id, focusContext = null) {
       saveClipHistory(clipHistory);
       saveClipFavorites(clipFavorites);
       renderClipList();
-      renderClipFavs();
       focusClipControl([id]);
       showStatusToast('已撤销删除');
     },
@@ -4089,7 +3792,6 @@ function clearClipHistory() {
     window.notchAPI.deleteClipImages(imagePaths).catch(() => {});
   }
   renderClipList();
-  renderClipFavs();
   showStatusToast(`已清空 ${removedCount} 条剪贴记录`);
 }
 
@@ -4132,7 +3834,6 @@ if (window.notchAPI && typeof window.notchAPI.onNewClipEntry === 'function') {
 
 renderAll();
 renderClipList(); // 首屏确保 clip-list DOM 就绪时渲染一次（幂等）
-renderClipFavs(); // 首屏渲染收藏剪贴块
 initTab();
 
 // ============ 待办历史：存档查看与完成跨度甘特图 ============

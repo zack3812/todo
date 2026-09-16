@@ -86,7 +86,6 @@ async function main() {
   await until(() => evaluate('Boolean(window.notchAPI)'), 'renderer initialization');
   assert.equal(await evaluate('window.notchAPI.platform'), 'win32');
   assert.equal(await evaluate('window.notchAPI.getAppSettings().then(s => s.features.clip)'), false);
-  assert.equal(await evaluate('window.notchAPI.listWindows().then(r => r.error)'), 'unsupported');
   await evaluate('document.getElementById("notch").click()');
   await until(() => evaluate('document.getElementById("app").classList.contains("expanded")'), 'expand');
   assert.equal(await evaluate('window.notchAPI.getMetrics().then(m => m.stripHeight)'), 19);

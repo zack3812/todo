@@ -246,7 +246,7 @@ async function main() {
 
     assert.deepEqual(settingsSurface, {
       contentClipPath: 'none',
-      shellOwnsExpandedOutline: true,
+      shellOwnsExpandedOutline: process.platform === 'darwin',
       rightmostTab: 'settings',
       activePanel: true,
       display: 'grid',

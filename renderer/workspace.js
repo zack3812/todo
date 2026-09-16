@@ -2,9 +2,7 @@
   const Domain = window.NotchDomain;
   if (!Domain) return;
 
-  const COMMANDS_KEY = 'notch-home-commands';
   const LINKS_KEY = 'notch-link-groups';
-    const HIDDEN_WINDOWS_KEY = 'notch-hidden-windows';
 
   const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
   const DELETE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>';
@@ -52,156 +50,6 @@
       minute: '2-digit',
     }).format(new Date(timestamp));
   }
-
-  // ============ 常用指令 ============
-  const commandInput = document.getElementById('command-add');
-  const commandList = document.getElementById('command-list');
-  const commandBulkDelete = document.getElementById('command-bulk-delete');
-  let commands = loadJson(COMMANDS_KEY, [])
-    .map((item) => Domain.createCommand(item && item.text, item && item.id, item && item.createdAt))
-    .filter(Boolean);
-  let commandSelection = new Set();
-  let commandSelectionAnchor = null;
-
-  function persistCommands() {
-    saveJson(COMMANDS_KEY, commands);
-  }
-
-  function renderCommands() {
-    if (!commandList) return;
-    commandList.replaceChildren();
-    if (commandBulkDelete) {
-      commandBulkDelete.hidden = commandSelection.size === 0;
-      commandBulkDelete.textContent = '删除';
-      commandBulkDelete.setAttribute('aria-label', commandSelection.size
-        ? `删除 ${commandSelection.size} 项`
-        : '删除所选');
-    }
-    if (!commands.length) {
-      const empty = document.createElement('div');
-      empty.className = 'command-empty';
-      empty.textContent = '把常用命令、提示词或回复模板放在这里';
-      commandList.appendChild(empty);
-      return;
-    }
-    commands.forEach((command) => {
-      const row = document.createElement('div');
-      row.className = `command-item${commandSelection.has(command.id) ? ' multi-selected' : ''}`;
-      row.dataset.id = command.id;
-
-      const textButton = document.createElement('button');
-      textButton.className = 'command-text';
-      textButton.type = 'button';
-      textButton.dataset.action = 'edit-command';
-      textButton.title = '点击修改';
-      textButton.textContent = command.text;
-
-      const actions = document.createElement('div');
-      actions.className = 'command-actions';
-      const copy = document.createElement('button');
-      copy.className = 'icon-button';
-      copy.type = 'button';
-      copy.dataset.action = 'copy-command';
-      copy.setAttribute('aria-label', '复制指令');
-      copy.innerHTML = COPY_ICON;
-      const remove = document.createElement('button');
-      remove.className = 'icon-button danger';
-      remove.type = 'button';
-      remove.dataset.action = 'delete-command';
-      remove.setAttribute('aria-label', '删除指令');
-      remove.innerHTML = DELETE_ICON;
-      actions.append(copy, remove);
-      row.append(textButton, actions);
-      commandList.appendChild(row);
-    });
-  }
-
-  function editCommand(row) {
-    const command = commands.find((item) => item.id === row.dataset.id);
-    if (!command || row.querySelector('input')) return;
-    const button = row.querySelector('.command-text');
-    const input = document.createElement('input');
-    input.className = 'command-edit';
-    input.value = command.text;
-    button.replaceWith(input);
-    input.focus();
-    input.select();
-    let finished = false;
-    const finish = (save) => {
-      if (finished) return;
-      finished = true;
-      const value = input.value.trim();
-      if (save && value) command.text = value;
-      persistCommands();
-      renderCommands();
-    };
-    input.addEventListener('blur', () => finish(true));
-    input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.isComposing) finish(true);
-      if (event.key === 'Escape') finish(false);
-    });
-  }
-
-  if (commandInput) {
-    commandInput.addEventListener('keydown', (event) => {
-      if (event.key !== 'Enter' || event.isComposing || event.keyCode === 229 || event.repeat) return;
-      event.preventDefault();
-      const command = Domain.createCommand(commandInput.value, uid('command'), Date.now());
-      if (!command) return;
-      commands.unshift(command);
-      commandInput.value = '';
-      persistCommands();
-      renderCommands();
-    });
-  }
-
-  if (commandList) {
-    commandList.addEventListener('click', async (event) => {
-      const row = event.target.closest('.command-item');
-      if (!row) return;
-      const command = commands.find((item) => item.id === row.dataset.id);
-      if (!command) return;
-      if (event.shiftKey) {
-        event.preventDefault();
-        const result = Domain.updateRangeSelection(
-          commands.map((item) => item.id),
-          [...commandSelection],
-          command.id,
-          commandSelectionAnchor,
-          true
-        );
-        commandSelection = new Set(result.selected);
-        commandSelectionAnchor = result.anchor;
-        renderCommands();
-        return;
-      }
-      commandSelectionAnchor = command.id;
-      const action = event.target.closest('[data-action]');
-      if (!action) return;
-      if (action.dataset.action === 'edit-command') editCommand(row);
-      if (action.dataset.action === 'delete-command') {
-        commands = commands.filter((item) => item.id !== command.id);
-        commandSelection.delete(command.id);
-        persistCommands();
-        renderCommands();
-      }
-      if (action.dataset.action === 'copy-command' && window.notchAPI) {
-        const copied = await window.notchAPI.writeClipboard({ type: 'text', text: command.text });
-        if (copied) {
-          row.classList.add('copied');
-          setTimeout(() => row.classList.remove('copied'), 700);
-        }
-      }
-    });
-  }
-  commandBulkDelete?.addEventListener('click', () => {
-    if (!commandSelection.size) return;
-    commands = commands.filter((command) => !commandSelection.has(command.id));
-    commandSelection.clear();
-    commandSelectionAnchor = null;
-    persistCommands();
-    renderCommands();
-  });
 
   // ============ 链接收藏夹 ============
   const linkInput = document.getElementById('link-add');
@@ -704,7 +552,6 @@
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
   const settingsApiConfigure = document.getElementById('settings-api-configure');
   const settingsLlmStatus = document.getElementById('settings-llm-status');
-  const settingsHomeModuleList = document.getElementById('settings-home-module-list');
   const settingsShortcutValue = document.getElementById('settings-shortcut-value');
   const settingsShortcutChange = document.getElementById('settings-shortcut-change');
   const settingsDefaultTab = document.getElementById('settings-default-tab');
@@ -879,29 +726,8 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       settingsWorkspacePath.title = summary.workspacePath || '';
     }
     if (settingsAutoLaunch) settingsAutoLaunch.checked = summary.autoLaunch;
-    renderHomeModuleSettings();
   }
 
-  function renderHomeModuleSettings() {
-    const state = window.NotchHome?.getVisibility?.();
-    const hidden = new Set(state?.hiddenIds || []);
-    settingsHomeModuleList?.querySelectorAll('input[data-settings-home-module]').forEach((input) => {
-      const moduleId = input.dataset.settingsHomeModule;
-      const unavailable = state?.unavailableIds?.includes(moduleId) === true;
-      input.closest('label').hidden = unavailable;
-      input.checked = !hidden.has(moduleId);
-      input.disabled = unavailable || state?.readOnly === true
-    });
-    const status = document.getElementById('settings-home-module-status');
-    if (status) {
-      status.textContent = state?.readOnly
-        ? '安全模式 · 暂不可修改'
-        : state?.persisted === false
-          ? '仅当前会话 · 未能保存'
-          : '隐藏后自动填充 · 至少保留一个';
-      status.dataset.state = state?.readOnly || state?.persisted === false ? 'warning' : 'saved';
-    }
-  }
 
   async function refreshSettingsPanel() {
     if (!window.notchAPI) return;
@@ -1077,34 +903,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       openTranscriptionSettings();
     });
   }
-  settingsHomeModuleList?.addEventListener('change', async (event) => {
-    const input = event.target.closest('input[data-settings-home-module]');
-    if (!input || !window.NotchHome?.setModuleVisible) return;
-    input.disabled = true;
-    const result = await window.NotchHome.setModuleVisible(
-      input.dataset.settingsHomeModule,
-      input.checked
-    );
-    renderHomeModuleSettings();
-    if (!result?.ok) {
-      const message = result?.error === 'at_least_one_required'
-        ? '首页至少保留一个组件'
-          : result?.error === 'layout_read_only'
-            ? '首页布局已进入安全模式，本次会话不能修改组件'
-            : result?.error === 'layout_invalid'
-              ? '新布局校验失败，原布局已保留'
-              : result?.error === 'dom_apply_failed'
-                ? '布局应用失败，原布局已恢复'
-                : '首页组件设置未更新';
-      if (typeof showStatusToast === 'function') showStatusToast(message);
-      return;
-    }
-    if (result.changed === false) return;
-    const message = result.persisted === false
-      ? '布局已更新，仅当前会话生效，设置未能保存'
-      : input.checked ? '首页组件已恢复' : '首页组件已隐藏';
-    if (typeof showStatusToast === 'function') showStatusToast(message);
-  });
   settingsShortcutChange?.addEventListener('click', () => {
     document.dispatchEvent(new CustomEvent('notch:record-shortcut'));
   });
@@ -1263,304 +1061,9 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
   });
   window.notchAPI?.onWorkspaceChanged?.(() => refreshSettingsPanel());
 
-  let windows = [];
-  let hiddenWindows = new Set(loadJson(HIDDEN_WINDOWS_KEY, []).filter((item) => typeof item === 'string'));
-  let windowsLoading = false;
-  const windowsRefresh = document.getElementById('windows-refresh');
-  const windowsHidden = document.getElementById('windows-hidden');
-  const windowList = document.getElementById('window-list');
-  let workspaceTab = document.querySelector('.tab.active')?.dataset.tab || 'home';
-  let workspaceExpanded = document.getElementById('app')?.classList.contains('expanded') || false;
-  let homeWindowsVisible = window.NotchHome?.isVisible?.('windows') !== false;
-  let windowDrag = null;
-  let suppressWindowClickUntil = 0;
-
-  function windowHideKey(windowInfo) {
-    return `${String(windowInfo.appName || '').trim()}\u0000${String(windowInfo.title || '').trim()}`;
-  }
-
-  function persistHiddenWindows() {
-    saveJson(HIDDEN_WINDOWS_KEY, [...hiddenWindows]);
-  }
-
-  function clearWindowDragVisuals() {
-    const drag = windowDrag;
-    windowDrag = null;
-    if (drag) {
-      clearTimeout(drag.timer);
-      try {
-        if (drag.item.hasPointerCapture?.(drag.pointerId)) drag.item.releasePointerCapture(drag.pointerId);
-      } catch (error) {}
-      drag.item.classList.remove('dragging', 'remove-ready');
-      drag.item.style.removeProperty('--window-drag-x');
-      drag.item.style.removeProperty('--window-drag-y');
-    }
-    document.querySelectorAll('.home-windows.drag-active').forEach((card) => {
-      card.classList.remove('drag-active');
-    });
-    return drag;
-  }
-
-  function renderWindows(error = '') {
-    if (!windowList) return;
-    // 轮询可能在长按过程中重建列表；先清理捕获与卡片移除态，避免红色区域残留。
-    clearWindowDragVisuals();
-    windowList.replaceChildren();
-    if (error) {
-      const empty = document.createElement('div');
-      empty.className = 'window-empty permission';
-      // 两种权限的现象完全一样（列表空），但要开的开关不同，必须分开说：
-      // 「屏幕录制」决定能不能读到窗口标题，「辅助功能」决定能不能枚举和聚焦窗口。
-      // 缺屏幕录制时系统既不报错也不弹提示，所以只能由这里告诉用户。
-      const screenRecording = error === 'screen_recording_permission_required';
-      const title = screenRecording ? '需要“屏幕录制”权限' : '需要“辅助功能”权限';
-      const pane = screenRecording ? '屏幕录制与系统录音' : '辅助功能';
-      const heading = document.createElement('strong');
-      heading.textContent = title;
-      const hint = document.createElement('span');
-      hint.textContent = `系统设置 → 隐私与安全性 → ${pane}，允许 TO-DO Panel 后重试。`;
-      const action = document.createElement('button');
-      action.type = 'button';
-      action.className = 'window-permission-open';
-      action.textContent = '打开系统设置';
-      action.addEventListener('click', () => {
-        if (window.notchAPI && typeof window.notchAPI.openPrivacySettings === 'function') {
-          window.notchAPI.openPrivacySettings(screenRecording ? 'screen-recording' : 'accessibility');
-        }
-      });
-      empty.append(heading, hint, action);
-      windowList.appendChild(empty);
-      return;
-    }
-    const visibleWindows = Domain.numberWindowLabels(
-      windows.filter((item) => !hiddenWindows.has(windowHideKey(item)))
-    );
-    if (windowsHidden) {
-      windowsHidden.hidden = hiddenWindows.size === 0;
-      windowsHidden.textContent = '隐藏';
-      windowsHidden.setAttribute('aria-label', `恢复已隐藏的 ${hiddenWindows.size} 个窗口`);
-    }
-    if (!visibleWindows.length) {
-      const empty = document.createElement('div');
-      empty.className = 'window-empty';
-      empty.textContent = windowsLoading
-        ? '正在读取当前窗口…'
-        : hiddenWindows.size
-          ? '窗口均已隐藏 · 点击上方恢复'
-          : '没有读取到可切换窗口';
-      windowList.appendChild(empty);
-      return;
-    }
-    visibleWindows.slice(0, 15).forEach((windowInfo) => {
-      const button = document.createElement('button');
-      button.className = 'window-item';
-      button.type = 'button';
-      button.dataset.id = windowInfo.id;
-      button.title = `${windowInfo.displayName}\n${windowInfo.title}\n长按后拖出卡片可隐藏`;
-      const mark = document.createElement('span');
-      mark.className = 'window-app-mark';
-      if (windowInfo.icon) {
-        const icon = document.createElement('img');
-        icon.src = windowInfo.icon;
-        icon.alt = '';
-        icon.draggable = false;
-        mark.appendChild(icon);
-      } else {
-        mark.textContent = (windowInfo.appName.charAt(0) || '·').toUpperCase();
-      }
-      const appName = document.createElement('strong');
-      appName.textContent = windowInfo.displayName;
-      button.append(mark, appName);
-      windowList.appendChild(button);
-    });
-  }
-
-  async function refreshWindows(force = false) {
-    if (!window.NotchHome?.isVisible?.('windows')) return;
-    if (windowsLoading || !window.notchAPI || (!force && (!workspaceExpanded || workspaceTab !== 'home'))) return;
-    windowsLoading = true;
-    renderWindows();
-    let result;
-    try {
-      result = await window.notchAPI.listWindows();
-    } catch (error) {
-      result = { items: [], error: 'accessibility_permission_required' };
-    }
-    windowsLoading = false;
-    windows = result && Array.isArray(result.items) ? result.items : [];
-    renderWindows(result && result.error);
-  }
-
-  if (windowsRefresh) windowsRefresh.addEventListener('click', () => refreshWindows(true));
-  if (windowsHidden) {
-    windowsHidden.addEventListener('click', () => {
-      hiddenWindows.clear();
-      persistHiddenWindows();
-      renderWindows();
-    });
-  }
-  if (windowList) {
-    windowList.addEventListener('click', (event) => {
-      if (Date.now() < suppressWindowClickUntil) return;
-      const item = event.target.closest('.window-item[data-id]');
-      if (item && window.notchAPI) window.notchAPI.focusWindow(item.dataset.id);
-    });
-    windowList.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || windowDrag) return;
-      const item = event.target.closest('.window-item[data-id]');
-      if (!item) return;
-      windowDrag = {
-        item,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-        active: false,
-        removeReady: false,
-        timer: setTimeout(() => {
-          if (!windowDrag || windowDrag.item !== item) return;
-          windowDrag.active = true;
-          item.classList.add('dragging');
-          try { item.setPointerCapture(event.pointerId); } catch (error) {}
-          item.closest('.home-windows')?.classList.add('drag-active');
-        }, 460),
-      };
-    });
-    document.addEventListener('pointermove', (event) => {
-      if (!windowDrag || windowDrag.pointerId !== event.pointerId) return;
-      const dx = event.clientX - windowDrag.startX;
-      const dy = event.clientY - windowDrag.startY;
-      if (!windowDrag.active) {
-        if (Math.hypot(dx, dy) > 8) {
-          clearTimeout(windowDrag.timer);
-          windowDrag = null;
-        }
-        return;
-      }
-      event.preventDefault();
-      windowDrag.item.style.setProperty('--window-drag-x', `${dx}px`);
-      windowDrag.item.style.setProperty('--window-drag-y', `${dy}px`);
-      const bounds = windowList.closest('.home-windows').getBoundingClientRect();
-      windowDrag.removeReady = event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom;
-      windowDrag.item.classList.toggle('remove-ready', windowDrag.removeReady);
-    });
-    const finishWindowDrag = (event) => {
-      if (!windowDrag || (event.pointerId != null && windowDrag.pointerId !== event.pointerId)) return;
-      const drag = clearWindowDragVisuals();
-      if (!drag) return;
-      if (!drag.active) return;
-      suppressWindowClickUntil = Date.now() + 450;
-      if (drag.removeReady) {
-        const windowInfo = windows.find((item) => item.id === drag.item.dataset.id);
-        if (windowInfo) {
-          hiddenWindows.add(windowHideKey(windowInfo));
-          persistHiddenWindows();
-          renderWindows();
-        }
-      }
-    };
-    document.addEventListener('pointerup', finishWindowDrag);
-    document.addEventListener('pointercancel', finishWindowDrag);
-    windowList.addEventListener('lostpointercapture', () => clearWindowDragVisuals(), true);
-    window.addEventListener('blur', clearWindowDragVisuals);
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) clearWindowDragVisuals();
-    });
-  }
-
   document.addEventListener('notch:tabchange', (event) => {
-    clearWindowDragVisuals();
-    workspaceTab = event.detail && event.detail.tab || 'home';
-    if (workspaceTab === 'home') refreshWindows();
-    if (workspaceTab === 'settings') refreshSettingsPanel();
+    if (event.detail && event.detail.tab === 'settings') refreshSettingsPanel();
   });
-  document.addEventListener('notch:modechange', (event) => {
-    clearWindowDragVisuals();
-    workspaceExpanded = !!(event.detail && event.detail.expanded);
-    if (workspaceExpanded && workspaceTab === 'home') refreshWindows();
-  });
-  document.addEventListener('notch:home-modules-changed', (event) => {
-    const nextVisible = Array.isArray(event.detail?.visibleIds)
-      ? event.detail.visibleIds.includes('windows')
-      : window.NotchHome?.isVisible?.('windows') !== false;
-    const restored = !homeWindowsVisible && nextVisible;
-    homeWindowsVisible = nextVisible;
-    renderHomeModuleSettings();
-    if (restored && workspaceExpanded && workspaceTab === 'home') refreshWindows(true);
-  });
-
-  // ============ 本地汽水音乐 ============
-  const homeMusic = document.getElementById('home-music');
-  const musicArtwork = document.getElementById('music-artwork');
-  const musicTitle = document.getElementById('music-title');
-  const musicStatus = document.getElementById('music-status');
-  const musicPlayToggle = document.getElementById('music-play-toggle');
-  let musicPlaying = false;
-
-  function renderMusicPlaybackState() {
-    if (!homeMusic || !musicPlayToggle) return;
-    homeMusic.classList.toggle('music-playing', musicPlaying);
-    musicPlayToggle.dataset.musicAction = musicPlaying ? 'pause' : 'play';
-    musicPlayToggle.setAttribute('aria-label', musicPlaying ? '暂停' : '播放');
-    musicPlayToggle.innerHTML = musicPlaying
-      ? '<svg viewBox="0 0 24 24"><path d="M8 7h3v10H8zM14 7h3v10h-3z" /></svg>'
-      : '<svg viewBox="0 0 24 24"><path d="m9 7 8 5-8 5z" /></svg>';
-  }
-
-  async function refreshMusicStatus() {
-    if (!homeMusic || !window.notchAPI || typeof window.notchAPI.getMusicStatus !== 'function') return;
-    let status;
-    try { status = await window.notchAPI.getMusicStatus(); } catch (error) { status = null; }
-    homeMusic.classList.toggle('music-running', Boolean(status && status.running));
-    if (status && typeof status.playing === 'boolean') {
-      musicPlaying = status.playing;
-      renderMusicPlaybackState();
-    }
-    if (status && status.icon && musicArtwork) {
-      musicArtwork.replaceChildren();
-      const image = document.createElement('img');
-      image.src = status.icon;
-      image.alt = '';
-      musicArtwork.appendChild(image);
-    }
-    if (musicTitle) musicTitle.textContent = status && status.installed ? '汽水音乐' : '未安装汽水音乐';
-    if (musicStatus) musicStatus.textContent = status && status.running ? (musicPlaying ? '正在播放' : '已连接') : status && status.installed ? '轻触即播' : '需要本地客户端';
-  }
-
-  homeMusic?.addEventListener('click', async (event) => {
-    if (event.target.closest('[data-widget-size-cycle]') || !window.notchAPI) return;
-    const control = event.target.closest('[data-music-action]') || musicPlayToggle;
-    if (!control) return;
-    event.stopPropagation();
-    control.disabled = true;
-    const action = control.dataset.musicAction;
-    let result;
-    try { result = await window.notchAPI.controlMusic(action); } catch (error) { result = { ok: false }; }
-    control.disabled = false;
-    if (!result || !result.ok) {
-      const needsSession = result && ['no_active_session', 'soda_session_inactive'].includes(result.error);
-      const needsPermission = result && result.error === 'accessibility_permission_required';
-      if (musicStatus) musicStatus.textContent = result && result.error === 'not_installed'
-        ? '需要本地客户端'
-        : needsPermission ? '需要辅助功能权限'
-          : needsSession ? '请先点播放' : '控制暂不可用';
-      if (typeof showStatusToast === 'function') {
-        showStatusToast(result && result.error === 'not_installed'
-          ? '未安装汽水音乐'
-          : needsPermission ? '请在系统设置中允许 TO-DO Panel 使用辅助功能'
-            : needsSession ? '请先点击播放，再使用切歌控制' : '汽水音乐控制暂不可用');
-      }
-    } else {
-      if (typeof result.playing === 'boolean') musicPlaying = result.playing;
-      else if (action === 'play') musicPlaying = true;
-      else if (action === 'pause') musicPlaying = false;
-      renderMusicPlaybackState();
-      if (musicStatus) musicStatus.textContent = action === 'next' ? '下一首' : action === 'previous' ? '上一首' : musicPlaying ? '正在播放' : '已暂停';
-    }
-    setTimeout(refreshMusicStatus, 500);
-  });
-
-  renderMusicPlaybackState();
-
   // ============ 本机加密密钥库 ============
   const credentialService = document.getElementById('credential-service');
   const credentialAccount = document.getElementById('credential-account');
@@ -1842,26 +1345,19 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
   });
 
   document.addEventListener('notch:clear-selection', () => {
-    commandSelection.clear();
-    commandSelectionAnchor = null;
     linkSelection.clear();
     linkSelectionAnchor = null;
     credentialSelection.clear();
     credentialAnchor = null;
-    renderCommands();
     renderLinkGroups();
     renderCredentials();
   });
 
-  setInterval(() => refreshWindows(), 6000);
 
 
-  renderCommands();
   renderLinkGroups();
-  renderWindows();
   loadTranscriptionConfig();
   refreshSettingsPanel();
-  refreshMusicStatus();
   loadCredentials();
 
 })();
