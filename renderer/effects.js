@@ -455,7 +455,6 @@
   const LINE_LISTS = [
     ['#tab-todo .todo-list', '.todo-item'],
     ['#tab-links .link-list', '.link-item'],
-    ['#tab-recordings .recording-list', '.recording-item'],
     ['#tab-credentials .credential-list', '.credential-item'],
     ['#tab-notes .notes-list', '.notes-list-item'],
   ];

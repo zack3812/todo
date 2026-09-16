@@ -56,7 +56,7 @@ test("hero renders the approved photographic composition with one real panel tog
   assert.match(hero, /class="hero-boot-wallpaper"/);
 });
 
-test("tab stack renders six ordered cards with one full real-capture surface each", async () => {
+test("tab stack renders five ordered cards with one full real-capture surface each", async () => {
   assert.ok(existsSync(moduleUrl), "LandingPage.tsx must render the approved landing experience");
   const { TAB_ITEMS } = await import("../app/landingContent.ts");
   const { default: LandingPage } = await import(moduleUrl.href);
@@ -70,7 +70,6 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
       "/tab-captures/clipboard.mp4",
       "/tab-captures/notes.mp4",
       "/tab-captures/links.mp4",
-      "/tab-captures/recordings.mp4",
       "/tab-captures/credentials.mp4",
     ],
   );
@@ -81,12 +80,12 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
 
   assert.deepEqual(
     [...html.matchAll(/data-tab-id="([^"]+)"/g)].map((match) => match[1]),
-    ["todo", "clipboard", "notes", "links", "recordings", "credentials"],
+    ["todo", "clipboard", "notes", "links", "credentials"],
   );
-  assert.equal((html.match(/data-full-capture=/g) || []).length, 6);
+  assert.equal((html.match(/data-full-capture=/g) || []).length, 5);
   assert.deepEqual(
     [...html.matchAll(/data-stack-layer="([^"]+)"/g)].map((match) => Number(match[1])),
-    [1, 2, 3, 4, 5, 6],
+    [1, 2, 3, 4, 5],
   );
   assert.doesNotMatch(html, /VIEW TAB|查看功能|tab-detail/);
   assert.match(html, /一个TAB解决一种高频需求/);
@@ -94,7 +93,7 @@ test("tab stack renders six ordered cards with one full real-capture surface eac
   assert.doesNotMatch(tabStack, /全桌面循环视频待接入/);
   assert.equal((tabStack.match(/preload="metadata"/g) || []).length, 2);
   assert.equal((tabStack.match(/poster="[^"]+\.webp"/g) || []).length, 2);
-  assert.equal((tabStack.match(/data-deferred-media=/g) || []).length, 4);
+  assert.equal((tabStack.match(/data-deferred-media=/g) || []).length, 3);
 
   const styles = readFileSync(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(styles, /\.tab-capture\s*\{[^}]*aspect-ratio:\s*990\s*\/\s*640/);
@@ -106,7 +105,7 @@ test("second screen uses six real feature captures without the home panel", asyn
 
   assert.deepEqual(
     MARQUEE_ITEMS.map((item) => item.id),
-    ["todo", "clipboard", "notes", "links", "recordings", "credentials"],
+    ["todo", "clipboard", "notes", "links", "credentials"],
   );
   assert.ok(MARQUEE_ITEMS.every((item) => item.kind === "image"));
   assert.ok(MARQUEE_ITEMS.every((item) => item.src.endsWith(".webp")));

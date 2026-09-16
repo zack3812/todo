@@ -247,7 +247,7 @@ test('renameGroup trims names but never creates an empty name', () => {
   assert.equal(renameGroup(groups, 'g1', '   ')[0].name, '开发');
 });
 
-test('createCommand and createRecording normalize user-authored metadata', () => {
+test('createCommand normalizes user-authored metadata', () => {
   assert.deepEqual(createCommand('  npm test  ', 'c1', 100), {
     id: 'c1',
     text: 'npm test',
