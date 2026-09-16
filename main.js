@@ -1,4 +1,4 @@
-const {
+﻿const {
   app,
   BrowserWindow,
   screen,
@@ -28,7 +28,6 @@ const PLATFORM_CAPABILITIES = platformPolicy.capabilities(process.platform);
 const {
   isPrivateAddress,
   extractPageTitle,
-  recordingExtension,
   normalizeWindowRows,
   todoReminderState,
   todoReminderTimerDelay,
@@ -48,7 +47,6 @@ const {
   updateFeaturePreference,
   controlSodaMusic,
   sodaShortcutSpec,
-  selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
@@ -60,8 +58,8 @@ const {
   fetchLatestRelease,
 } = require('./main-services');
 
-// Keep the historical data directory so upgrading users retain notes, links,
-// recordings and encrypted settings after the public product rename.
+// Keep the historical data directory so upgrading users retain notes, links
+// and encrypted settings after the public product rename.
 const LEGACY_USER_DATA_PATH = path.join(app.getPath('appData'), 'Dynamic Panel');
 app.setName('TO-DO Panel');
 // Honor Electron's standard profile switch for isolated automated tests.
@@ -195,7 +193,6 @@ const TAB_SIZES = {
   notes: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   clip: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   links: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
-  recordings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   credentials: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
   settings: { width: EXPANDED_WIDTH, panelHeight: EXPANDED_PANEL_HEIGHT },
 };
@@ -212,20 +209,14 @@ const CLIP_POLL_INTERVAL_MS = 500;
 const CLIP_IMAGE_POLL_INTERVAL_MS = 3000;
 const CLIP_IMAGES_DIR_NAME = 'clipboard-images';
 
-const RECORDINGS_DIR_NAME = 'recordings';
 const TRANSCRIPTION_SETTINGS_FILE = 'transcription-settings.json';
 const AI_SETTINGS_FILE = 'ai-settings.json';
 const CREDENTIALS_VAULT_FILE = 'credentials.vault.json';
 const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
-const MIRROR_IMAGE_FILE = 'mirror-cover.jpg';
 const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
-const TRANSCRIPTION_MODEL = 'qwen3-asr-flash-realtime';
-const TRANSCRIPTION_SAMPLE_RATE = 16000;
-const TRANSCRIPTION_FINISH_TIMEOUT_MS = 7000;
-const RECORDING_MAX_BYTES = 200 * 1024 * 1024;
 const LINK_FETCH_TIMEOUT_MS = 8000;
 const LINK_FETCH_MAX_BYTES = 512 * 1024;
 const LINK_FETCH_MAX_REDIRECTS = 3;
@@ -295,7 +286,6 @@ function cacheWindowIcon(appPath, icon) {
   windowIconCache.set(appPath, icon);
   if (windowIconCache.size > WINDOW_ICON_CACHE_LIMIT) windowIconCache.delete(windowIconCache.keys().next().value);
 }
-const transcriptionSessions = new Map();
 
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -1069,6 +1059,7 @@ function createWindow() {
   mainWindow.on('show', syncHoverSpacePolling);
   mainWindow.on('hide', syncHoverSpacePolling);
 
+  mainWindow.webContents.session.clearCache();
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   mainWindow.once('ready-to-show', () => {
@@ -1207,7 +1198,7 @@ function showOwnedOpenDialog(options) {
 
 function copyWorkspaceAssets(sourceRoot, targetRoot) {
   if (!sourceRoot || !targetRoot || path.resolve(sourceRoot) === path.resolve(targetRoot)) return;
-  for (const directory of [RECORDINGS_DIR_NAME, CLIP_IMAGES_DIR_NAME]) {
+  for (const directory of [CLIP_IMAGES_DIR_NAME]) {
     const source = path.join(sourceRoot, directory);
     const target = path.join(targetRoot, directory);
     try {
@@ -1216,7 +1207,7 @@ function copyWorkspaceAssets(sourceRoot, targetRoot) {
       fs.cpSync(source, target, { recursive: true, force: false, errorOnExist: false });
     } catch (error) {}
   }
-  for (const filename of [WORKSPACE_DATA_FILE, MIRROR_IMAGE_FILE]) {
+  for (const filename of [WORKSPACE_DATA_FILE]) {
     const source = path.join(sourceRoot, filename);
     const target = path.join(targetRoot, filename);
     try {
@@ -1237,7 +1228,7 @@ async function chooseWorkspaceFolder() {
   const previousRoot = workspaceRoot();
   copyWorkspaceAssets(previousRoot, selected);
   if (!writeJsonFile(getJsonSettingsPath(WORKSPACE_SETTINGS_FILE), { path: selected })) return false;
-  for (const directory of [RECORDINGS_DIR_NAME, CLIP_IMAGES_DIR_NAME]) {
+  for (const directory of [CLIP_IMAGES_DIR_NAME]) {
     try { fs.mkdirSync(path.join(selected, directory), { recursive: true }); } catch (error) {}
   }
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('workspace:changed', { path: selected });
@@ -1326,45 +1317,6 @@ function openRendererPanel(channel) {
   else send();
 }
 
-function mirrorImagePath() {
-  return workspacePath(MIRROR_IMAGE_FILE);
-}
-
-function mirrorImageDataUrl() {
-  try {
-    const image = nativeImage.createFromPath(mirrorImagePath());
-    if (image.isEmpty()) return null;
-    return image.toDataURL();
-  } catch (error) {
-    return null;
-  }
-}
-
-async function chooseMirrorImage() {
-  const result = await showOwnedOpenDialog({
-    title: '替换镜子配图',
-    properties: ['openFile'],
-    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'webp', 'heic'] }],
-  });
-  const selected = !result.canceled && result.filePaths && result.filePaths[0];
-  if (!selected) return { ok: true, canceled: true };
-  try {
-    const image = nativeImage.createFromPath(selected);
-    if (image.isEmpty()) throw new Error('invalid_image');
-    const size = image.getSize();
-    if (!size.width || !size.height || size.width * size.height > 60_000_000) throw new Error('image_too_large');
-    fs.writeFileSync(mirrorImagePath(), image.toJPEG(92), { mode: 0o600 });
-    const dataUrl = mirrorImageDataUrl();
-    if (dataUrl && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('mirror:image-changed', dataUrl);
-    }
-    return { ok: true, canceled: false, dataUrl };
-  } catch (error) {
-    await dialog.showMessageBox({ type: 'error', title: '无法替换配图', message: '请选择一张有效且尺寸适中的图片。' });
-    return { ok: false, error: 'invalid_image' };
-  }
-}
-
 function refreshTrayMenu() {
   if (!tray) return;
   const autoLaunch = isAutoLaunchEnabled();
@@ -1374,10 +1326,6 @@ function refreshTrayMenu() {
     {
       label: 'API 配置…',
       click: () => openRendererPanel('app:open-api-settings'),
-    },
-    {
-      label: '替换镜子配图…',
-      click: chooseMirrorImage,
     },
     {
       label: '显示功能',
@@ -1515,7 +1463,6 @@ ipcMain.handle('workspace:load-data', () => {
 function normalizePortableStorage(storage) {
   const portable = { ...storage };
   const normalizers = [
-    ['notch-recordings', 'audioPath', RECORDINGS_DIR_NAME],
     ['notch-clip-history', 'imagePath', CLIP_IMAGES_DIR_NAME],
   ];
   for (const [storageKey, property, directory] of normalizers) {
@@ -1615,9 +1562,10 @@ ipcMain.handle('tasks:recent', () => taskCompletionHistory);
 
 // ============ 自动更新（多更新源探测：GitHub 直连 + 国内镜像）============
 const UPDATE_REPO = 'zack3812/todo';
-const UPDATE_INITIAL_DELAY_MS = 8000;
+const UPDATE_INITIAL_DELAY_MS = 3000;
 const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
-const UPDATE_PROBE_TIMEOUT_MS = 4000;
+const UPDATE_PROBE_TIMEOUT_MS = 2500;
+const UPDATE_SOURCE_CACHE_MS = 10 * 60 * 1000; // 探测成功的更新源缓存 10 分钟，避免每次检查都重新探测
 const UPDATE_SOURCES = [
   { name: 'GitHub', base: 'https://github.com/zack3812/todo/releases/latest/download/' },
   { name: '镜像 gh-proxy', base: 'https://gh-proxy.com/https://github.com/zack3812/todo/releases/latest/download/' },
@@ -1627,6 +1575,7 @@ let updatePollTimer = null;
 let cachedUpdateState = null;
 let autoUpdater = null;
 let activeUpdateSource = null;
+let cachedProbe = null; // { source, at } 最近一次探测成功的更新源
 
 function normalizeUpdateState(partial) {
   cachedUpdateState = { mode: process.platform === 'win32' ? 'win-auto' : 'mac-link', current: app.getVersion(), ...cachedUpdateState, ...partial };
@@ -1634,9 +1583,15 @@ function normalizeUpdateState(partial) {
 }
 
 function sendUpdateState(state) {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('update:state', state);
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.webContents.isLoadingMainFrame()) {
+    // 窗口仍在加载：等首帧渲染完成再补发，避免状态丢失导致设置页一直「读取中…」
+    mainWindow.webContents.once('did-finish-load', () => {
+      if (!mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+    });
+    return;
   }
+  mainWindow.webContents.send('update:state', state);
 }
 
 async function checkForUpdate() {
@@ -1674,11 +1629,20 @@ async function probeUpdateSource(source) {
   finally { clearTimeout(timer); }
 }
 
-// 并行探测全部更新源，返回最快可达的一个（按声明顺序平局）
+// 并行探测全部更新源，返回最快可达的一个（按声明顺序平局）。
+// 成功结果缓存 UPDATE_SOURCE_CACHE_MS，缓存期内直接复用，不再重复网络探测。
 async function selectUpdateSource() {
+  if (cachedProbe && Date.now() - cachedProbe.at < UPDATE_SOURCE_CACHE_MS) {
+    return cachedProbe.source;
+  }
   const probes = await Promise.all(UPDATE_SOURCES.map(probeUpdateSource));
   const ok = probes.filter(Boolean).sort((a, b) => a.latency - b.latency);
-  return ok[0] || null;
+  const source = ok[0] || null;
+  if (source) {
+    cachedProbe = { source, at: Date.now() };
+    activeUpdateSource = source;
+  }
+  return source;
 }
 
 // Windows：选源后接入 electron-updater（下载进度 + 静默安装）。
@@ -1731,7 +1695,12 @@ async function winCheckForUpdates() {
   sendUpdateState(normalizeUpdateState({ status: 'checking', source: source.name, error: null }));
   try {
     autoUpdater.setFeedURL({ provider: 'generic', url: source.base });
-    await autoUpdater.checkForUpdates();
+    const result = await autoUpdater.checkForUpdates();
+    if (!result) {
+      // 开发模式 / 未打包：electron-updater 直接跳过检查且不触发任何事件，
+      // 这里兜底推送一次状态，避免设置页一直停在「正在检查更新…」
+      sendUpdateState(normalizeUpdateState({ status: 'not-available', hasUpdate: false }));
+    }
   } catch (error) {
     sendUpdateState(normalizeUpdateState({ status: 'error', error: error?.message || String(error) }));
   }
@@ -1762,6 +1731,8 @@ async function winDownloadUpdate() {
 }
 
 function startUpdateChecker() {
+  // 先立刻推送当前版本，设置页版本号无需等 8 秒后的网络检查
+  sendUpdateState(normalizeUpdateState({ status: 'checking', error: null }));
   if (process.platform === 'win32' && autoUpdater) {
     setTimeout(() => { void winCheckForUpdates(); }, UPDATE_INITIAL_DELAY_MS);
     updatePollTimer = setInterval(() => { void winCheckForUpdates(); }, UPDATE_POLL_MS);
@@ -2502,9 +2473,6 @@ async function rememberPasteTarget() {
   return previousPasteTarget;
 }
 
-ipcMain.handle('mirror:get-image', () => mirrorImageDataUrl());
-ipcMain.handle('mirror:choose-image', () => chooseMirrorImage());
-
 function getCredentialsVaultPath() {
   return path.join(app.getPath('userData'), CREDENTIALS_VAULT_FILE);
 }
@@ -2696,40 +2664,19 @@ ipcMain.handle('music:control', async (event, action) => {
   return result;
 });
 
-// ============ 百炼实时语音转写 ============
+// LLM 配置兜底（笔记命名 / 周报总结）：读取旧转写设置文件中保存的 LLM 字段。
 function getTranscriptionSettingsPath() {
   return path.join(app.getPath('userData'), TRANSCRIPTION_SETTINGS_FILE);
 }
 
 function readStoredTranscriptionSettings() {
   const currentPath = getTranscriptionSettingsPath();
-  const legacyPath = path.join(app.getPath('appData'), 'notch-todo', TRANSCRIPTION_SETTINGS_FILE);
-  const readSettings = (settingsPath) => {
-    try {
-      const value = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
-    } catch (error) {
-      return {};
-    }
-  };
-  const current = readSettings(currentPath);
-  const legacy = currentPath === legacyPath ? {} : readSettings(legacyPath);
-  const selected = selectTranscriptionSettings(current, legacy);
-  if (!Object.keys(current).length && Object.keys(selected).length && currentPath !== legacyPath) {
-    try {
-      fs.mkdirSync(path.dirname(currentPath), { recursive: true });
-      fs.writeFileSync(currentPath, JSON.stringify(selected), { mode: 0o600 });
-    } catch (error) {
-      // 迁移失败时仍从旧目录读取，避免已有密钥突然失效。
-    }
+  try {
+    const value = JSON.parse(fs.readFileSync(currentPath, 'utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  } catch (error) {
+    return {};
   }
-  return selected;
-}
-
-function decryptStoredApiKey(settings) {
-  const environmentKey = String(process.env.DASHSCOPE_API_KEY || '').trim();
-  if (environmentKey) return environmentKey;
-  return decryptStoredSecret(settings.encryptedApiKey).trim();
 }
 
 function decryptStoredSecret(value) {
@@ -2833,224 +2780,6 @@ function publicAiConfig() {
     secureStorage: safeStorage.isEncryptionAvailable(),
     needsReentry: Boolean(stored.encryptedApiKey && !config.apiKey),
   };
-}
-
-function resolveTranscriptionConfig() {
-  const settings = readStoredTranscriptionSettings();
-  const environmentWorkspace = String(process.env.DASHSCOPE_WORKSPACE_ID || process.env.DASHSCOPE_WORKSPACE || '').trim();
-  const environmentRegion = String(process.env.DASHSCOPE_REGION || '').trim().toLowerCase();
-  const region = ['beijing', 'singapore'].includes(environmentRegion)
-    ? environmentRegion
-    : ['beijing', 'singapore'].includes(settings.region) ? settings.region : 'beijing';
-  const workspaceId = (environmentWorkspace || String(settings.workspaceId || '').trim()).slice(0, 128);
-  return {
-    apiKey: decryptStoredApiKey(settings),
-    workspaceId: /^[A-Za-z0-9_-]{0,128}$/.test(workspaceId) ? workspaceId : '',
-    region,
-  };
-}
-
-function publicTranscriptionConfig() {
-  const config = resolveTranscriptionConfig();
-  const llmConfig = resolveLlmConfig();
-  const settings = readStoredTranscriptionSettings();
-  return {
-    configured: Boolean(config.apiKey),
-    asrNeedsReentry: Boolean(settings.encryptedApiKey && !config.apiKey),
-    workspaceId: config.workspaceId,
-    region: config.region,
-    provider: 'qwen3-asr-flash-realtime',
-    secureStorage: safeStorage.isEncryptionAvailable(),
-    llmConfigured: Boolean(llmConfig.apiKey),
-    llmNeedsReentry: Boolean(settings.encryptedLlmApiKey && !llmConfig.apiKey),
-    llmBaseUrl: String(settings.llmBaseUrl || 'https://api.deepseek.com'),
-    llmModel: String(settings.llmModel || 'deepseek-v4-flash'),
-  };
-}
-
-function transcriptionUrl(config) {
-  const host = config.workspaceId
-    ? config.region === 'singapore'
-      ? `${config.workspaceId}.ap-southeast-1.maas.aliyuncs.com`
-      : `${config.workspaceId}.cn-beijing.maas.aliyuncs.com`
-    : config.region === 'singapore'
-      ? 'dashscope-intl.aliyuncs.com'
-      : 'dashscope.aliyuncs.com';
-  return `wss://${host}/api-ws/v1/realtime?model=${TRANSCRIPTION_MODEL}&heartbeat=true`;
-}
-
-function transcriptionEventId() {
-  return `event_${crypto.randomUUID().replace(/-/g, '')}`;
-}
-
-function emitTranscription(session, payload) {
-  if (session.sender && !session.sender.isDestroyed()) {
-    session.sender.send('transcription:event', payload);
-  }
-}
-
-function sessionTranscript(session) {
-  return [...session.finalSegments, session.interim].filter(Boolean).join(' ').trim();
-}
-
-function closeTranscriptionSession(session, result = {}) {
-  if (!session || session.closed) return;
-  session.closed = true;
-  clearTimeout(session.connectTimer);
-  clearTimeout(session.finishTimer);
-  clearTimeout(session.retryTimer);
-  clearTimeout(session.heartbeatTimer);
-  if (transcriptionSessions.get(session.senderId) === session) transcriptionSessions.delete(session.senderId);
-  session.settleStart?.({ ok: false, error: result.error || 'connection_closed' });
-  session.audioQueue = [];
-  try { session.socket?.terminate(); } catch (error) {}
-  if (session.finishResolve) {
-    session.finishResolve({
-      ok: result.ok !== false,
-      transcript: sessionTranscript(session),
-      error: result.error || null,
-    });
-    session.finishResolve = null;
-  }
-}
-
-function handleTranscriptionMessage(session, raw) {
-  let message;
-  try { message = JSON.parse(String(raw)); } catch (error) { return; }
-  if (message.type === 'session.updated') {
-    session.ready = true;
-    session.retryCount = 0;
-    session.lastError = '';
-    clearTimeout(session.connectTimer);
-    session.settleStart({ ok: true });
-    emitTranscription(session, { type: 'status', status: 'connected' });
-    flushTranscriptionAudio(session);
-    return;
-  }
-  if (message.type === 'conversation.item.input_audio_transcription.text') {
-    session.interim = `${String(message.text || '').trim()}${String(message.stash || '').trim()}`;
-    emitTranscription(session, {
-      type: 'transcript',
-      final: session.finalSegments.join(' ').trim(),
-      interim: session.interim,
-    });
-    return;
-  }
-  if (message.type === 'conversation.item.input_audio_transcription.completed') {
-    const transcript = String(message.transcript || '').trim();
-    if (transcript && (!message.item_id || !session.completedItems.has(message.item_id))) {
-      session.finalSegments.push(transcript);
-      if (message.item_id) session.completedItems.add(message.item_id);
-    }
-    session.interim = '';
-    emitTranscription(session, {
-      type: 'transcript',
-      final: session.finalSegments.join(' ').trim(),
-      interim: '',
-    });
-    return;
-  }
-  if (message.type === 'error' || message.type === 'conversation.item.input_audio_transcription.failed') {
-    const details = message.error && message.error.message || '实时转写服务返回错误';
-    reconnectTranscription(session, details);
-    return;
-  }
-  if (message.type === 'session.finished') {
-    if (session.finishResolve) closeTranscriptionSession(session, { ok: !session.audioGap, error: session.audioGap ? 'audio_gap' : null });
-    else reconnectTranscription(session, 'session_finished');
-  }
-}
-
-function reconnectTranscription(session, error) {
-  if (session.closed || session.retryTimer) return;
-  session.lastError = error;
-  session.ready = false;
-  clearTimeout(session.connectTimer);
-  clearTimeout(session.heartbeatTimer);
-  const socket = session.socket;
-  session.socket = null; // Ignore late close/error/transcript events from the old connection.
-  try { socket?.terminate(); } catch (ignored) {}
-  if (session.finishResolve) {
-    closeTranscriptionSession(session, { ok: false, error });
-    return;
-  }
-  // Preserve the last partial sentence when the server can no longer finalize it.
-  if (session.interim) session.finalSegments.push(session.interim);
-  session.interim = '';
-  emitTranscription(session, { type: 'transcript', final: sessionTranscript(session), interim: '' });
-  if (session.retryCount >= 5) {
-    emitTranscription(session, { type: 'error', message: error });
-    closeTranscriptionSession(session, { ok: false, error });
-    return;
-  }
-  emitTranscription(session, { type: 'status', status: 'reconnecting' });
-  const delay = Math.min(1000 * 2 ** session.retryCount++, 15000);
-  session.retryTimer = setTimeout(() => {
-    session.retryTimer = null;
-    connectTranscriptionSocket(session);
-  }, delay);
-}
-
-function flushTranscriptionAudio(session) {
-  while (session.ready && session.socket?.readyState === WebSocket.OPEN && session.audioQueue.length) {
-    const buffer = session.audioQueue[0];
-    // Bound ws's own outgoing queue as well as our reconnect buffer.
-    if (session.socket.bufferedAmount > 16000 * 2 * 30) {
-      reconnectTranscription(session, 'audio_backpressure');
-      return;
-    }
-    try {
-      session.socket.send(JSON.stringify({
-        event_id: transcriptionEventId(), type: 'input_audio_buffer.append', audio: buffer.toString('base64'),
-      }));
-    } catch (error) {
-      reconnectTranscription(session, 'audio_send_failed');
-      return;
-    }
-    session.audioQueue.shift();
-    session.queuedBytes -= buffer.length;
-  }
-}
-
-function connectTranscriptionSocket(session) {
-  if (session.closed) return;
-  const socket = new WebSocket(transcriptionUrl(session.config), { headers: session.headers });
-  session.socket = socket;
-  session.completedItems = new Set();
-  const active = () => !session.closed && session.socket === socket;
-  session.connectTimer = setTimeout(() => {
-    if (active()) reconnectTranscription(session, 'connect_timeout');
-  }, 8000);
-  socket.on('open', () => {
-    if (!active()) return;
-    try {
-      socket.send(JSON.stringify({
-        event_id: transcriptionEventId(), type: 'session.update',
-        session: {
-          input_audio_format: 'pcm', sample_rate: TRANSCRIPTION_SAMPLE_RATE,
-          input_audio_transcription: { language: 'zh' },
-          turn_detection: { type: 'server_vad', threshold: 0, silence_duration_ms: 400 },
-        },
-      }));
-    } catch (error) { reconnectTranscription(session, 'configuration_send_failed'); return; }
-    let awaitingPong = false;
-    socket.on('pong', () => { awaitingPong = false; });
-    const heartbeat = () => {
-      if (!active()) return;
-      if (awaitingPong) { reconnectTranscription(session, 'heartbeat_timeout'); return; }
-      awaitingPong = true;
-      try { socket.ping(); } catch (error) { reconnectTranscription(session, 'heartbeat_failed'); return; }
-      session.heartbeatTimer = setTimeout(heartbeat, 15000);
-    };
-    session.heartbeatTimer = setTimeout(heartbeat, 15000);
-  });
-  socket.on('message', (data) => { if (active()) handleTranscriptionMessage(session, data); });
-  socket.on('error', (error) => {
-    if (active()) reconnectTranscription(session, String(error?.message || 'connection_failed'));
-  });
-  socket.on('close', (code) => {
-    if (active()) reconnectTranscription(session, `connection_closed_${code}`);
-  });
 }
 
 ipcMain.handle('ai:get-config', () => publicAiConfig());
@@ -3212,210 +2941,6 @@ ipcMain.handle('ai:summarize-week', async (event, payload) => {
     status: clean(parsed.status),
     nextWeek: clean(parsed.nextWeek),
   };
-});
-
-ipcMain.handle('transcription:get-config', () => publicTranscriptionConfig());
-
-ipcMain.handle('transcription:set-config', (event, payload) => {
-  const previous = readStoredTranscriptionSettings();
-  const region = payload && payload.region === 'singapore' ? 'singapore' : 'beijing';
-  const workspaceId = String(payload && payload.workspaceId || '').trim();
-  const apiKey = String(payload && payload.apiKey || '').trim();
-  const llmApiKey = String(payload && payload.llmApiKey || '').trim();
-  const llmBaseUrl = String(payload && payload.llmBaseUrl || previous.llmBaseUrl || 'https://api.deepseek.com').trim();
-  const llmModel = String(payload && payload.llmModel || previous.llmModel || 'deepseek-v4-flash').replace(/\s+/g, ' ').trim().slice(0, 120);
-  if (workspaceId && !/^[A-Za-z0-9_-]{1,128}$/.test(workspaceId)) {
-    return { ok: false, error: 'invalid_workspace' };
-  }
-  let parsedLlmUrl;
-  try { parsedLlmUrl = new URL(llmBaseUrl); } catch (error) { parsedLlmUrl = null; }
-  if (!parsedLlmUrl || parsedLlmUrl.protocol !== 'https:' || parsedLlmUrl.username || parsedLlmUrl.password) {
-    return { ok: false, error: 'invalid_llm_url' };
-  }
-  if ((apiKey || llmApiKey) && !safeStorage.isEncryptionAvailable()) {
-    return { ok: false, error: 'secure_storage_unavailable' };
-  }
-  const next = {
-    region,
-    workspaceId,
-    encryptedApiKey: apiKey
-      ? safeStorage.encryptString(apiKey).toString('base64')
-      : String(previous.encryptedApiKey || ''),
-    llmBaseUrl: parsedLlmUrl.toString().replace(/\/$/, ''),
-    llmModel,
-    encryptedLlmApiKey: llmApiKey
-      ? safeStorage.encryptString(llmApiKey).toString('base64')
-      : String(previous.encryptedLlmApiKey || ''),
-  };
-  try {
-    fs.writeFileSync(getTranscriptionSettingsPath(), JSON.stringify(next), { mode: 0o600 });
-    return { ok: true, ...publicTranscriptionConfig() };
-  } catch (error) {
-    return { ok: false, error: 'save_failed' };
-  }
-});
-
-ipcMain.handle('transcription:start', (event) => {
-  const config = resolveTranscriptionConfig();
-  if (!config.apiKey) return { ok: false, error: 'not_configured' };
-  const existing = transcriptionSessions.get(event.sender.id);
-  if (existing) closeTranscriptionSession(existing, { ok: false, error: 'replaced' });
-  return new Promise((resolve) => {
-    const headers = {
-      Authorization: `Bearer ${config.apiKey}`,
-      'OpenAI-Beta': 'realtime=v1',
-      'User-Agent': 'DynamicPanel/0.3',
-    };
-    if (config.workspaceId) headers['X-DashScope-WorkSpace'] = config.workspaceId;
-    const session = {
-      sender: event.sender, senderId: event.sender.id, config, headers,
-      socket: null, finalSegments: [], interim: '', ready: false, closed: false,
-      startSettled: false, finishResolve: null, connectTimer: null, finishTimer: null,
-      retryTimer: null, heartbeatTimer: null, retryCount: 0, lastError: '',
-      audioQueue: [], queuedBytes: 0, audioGap: false, completedItems: new Set(),
-    };
-    transcriptionSessions.set(event.sender.id, session);
-    session.settleStart = (result) => {
-      if (session.startSettled) return;
-      session.startSettled = true;
-      resolve(result);
-    };
-    connectTranscriptionSocket(session);
-  });
-});
-
-ipcMain.on('transcription:audio', (event, bytes) => {
-  const session = transcriptionSessions.get(event.sender.id);
-  if (!session || session.closed || session.finishResolve) return;
-  const buffer = Buffer.from(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes || []);
-  if (!buffer.length || buffer.length > 512 * 1024) return;
-  session.audioQueue.push(buffer);
-  session.queuedBytes += buffer.length;
-  // 30 seconds of 16 kHz mono PCM16; the full recording still stays on disk.
-  while (session.queuedBytes > TRANSCRIPTION_SAMPLE_RATE * 2 * 30) {
-    session.queuedBytes -= session.audioQueue.shift().length;
-    if (!session.audioGap) {
-      session.audioGap = true;
-      emitTranscription(session, { type: 'warning', code: 'audio_gap' });
-    }
-  }
-  flushTranscriptionAudio(session);
-});
-
-ipcMain.handle('transcription:finish', (event) => {
-  const session = transcriptionSessions.get(event.sender.id);
-  if (!session || session.closed) return { ok: false, error: 'not_active', transcript: '' };
-  if (session.finishResolve) return { ok: false, error: 'already_finishing', transcript: sessionTranscript(session) };
-  return new Promise((resolve) => {
-    session.finishResolve = resolve;
-    session.finishTimer = setTimeout(() => {
-      closeTranscriptionSession(session, { ok: false, error: 'finish_timeout' });
-    }, TRANSCRIPTION_FINISH_TIMEOUT_MS);
-    if (session.ready && session.socket?.readyState === WebSocket.OPEN) {
-      try {
-        session.socket.send(JSON.stringify({ event_id: transcriptionEventId(), type: 'session.finish' }));
-      } catch (error) {
-        closeTranscriptionSession(session, { ok: false, error: 'finish_send_failed' });
-      }
-    } else {
-      closeTranscriptionSession(session, { ok: false, error: 'connection_closed' });
-    }
-  });
-});
-
-function closeAllTranscriptionSessions() {
-  for (const session of transcriptionSessions.values()) {
-    closeTranscriptionSession(session, { ok: false, error: 'app_quit' });
-  }
-}
-
-// ============ 录音资料库 ============
-function getRecordingsDir() {
-  return workspacePath(RECORDINGS_DIR_NAME);
-}
-
-function ensureRecordingsDir() {
-  try {
-    fs.mkdirSync(getRecordingsDir(), { recursive: true });
-  } catch (error) {
-    // 目录不可用时由保存 IPC 返回失败。
-  }
-}
-
-function getSafeRecordingPath(value) {
-  if (typeof value !== 'string' || !value.trim()) return null;
-  const directory = path.resolve(getRecordingsDir());
-  const resolvedPath = path.isAbsolute(value)
-    ? path.resolve(value)
-    : path.resolve(workspaceRoot(), value);
-  if (path.dirname(resolvedPath) !== directory) return null;
-  if (!/^recording-[a-z0-9-]+\.(webm|m4a|ogg|wav)$/i.test(path.basename(resolvedPath))) {
-    return null;
-  }
-  try {
-    const directoryStat = fs.lstatSync(directory);
-    const fileStat = fs.lstatSync(resolvedPath);
-    if (directoryStat.isSymbolicLink() || !directoryStat.isDirectory()) return null;
-    if (fileStat.isSymbolicLink() || !fileStat.isFile()) return null;
-    return resolvedPath;
-  } catch (error) {
-    return null;
-  }
-}
-
-ipcMain.handle('recordings:save', async (event, payload) => {
-  if (!payload || !payload.bytes) return { ok: false, error: 'empty_audio' };
-  let buffer;
-  try {
-    buffer = Buffer.from(payload.bytes);
-  } catch (error) {
-    return { ok: false, error: 'invalid_audio' };
-  }
-  if (!buffer.length || buffer.length > RECORDING_MAX_BYTES) {
-    return { ok: false, error: buffer.length ? 'audio_too_large' : 'empty_audio' };
-  }
-  ensureRecordingsDir();
-  const mimeType = String(payload.mimeType || 'audio/webm').slice(0, 80);
-  const extension = recordingExtension(mimeType);
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-  const audioPath = path.join(getRecordingsDir(), `recording-${id}.${extension}`);
-  try {
-    await fs.promises.writeFile(audioPath, buffer, { flag: 'wx' });
-    return { ok: true, audioPath: platformPolicy.portableMediaPath(RECORDINGS_DIR_NAME, audioPath), mimeType };
-  } catch (error) {
-    return { ok: false, error: 'write_failed' };
-  }
-});
-
-ipcMain.handle('recordings:read', async (event, audioPath) => {
-  const safePath = getSafeRecordingPath(audioPath);
-  if (!safePath) return null;
-  try {
-    const bytes = await fs.promises.readFile(safePath);
-    const extension = path.extname(safePath).slice(1).toLowerCase();
-    const mimeType = extension === 'm4a' ? 'audio/mp4' : `audio/${extension || 'webm'}`;
-    return { bytes, mimeType };
-  } catch (error) {
-    return null;
-  }
-});
-
-ipcMain.handle('recordings:delete', async (event, audioPath) => {
-  const safePath = getSafeRecordingPath(audioPath);
-  if (!safePath) return false;
-  try {
-    await fs.promises.unlink(safePath);
-    return true;
-  } catch (error) {
-    return false;
-  }
-});
-
-ipcMain.handle('recordings:reveal', (event, audioPath) => {
-  const safePath = getSafeRecordingPath(audioPath);
-  if (!safePath) return false;
-  shell.showItemInFolder(safePath);
-  return true;
 });
 
 // ============ 剪贴板历史 ============
@@ -3825,7 +3350,6 @@ app.whenReady().then(() => {
   createTray();
   watchDisplayChanges();
   ensureClipImagesDir();
-  ensureRecordingsDir();
   applyAppSettings();
   startTaskNotificationServer();
   startUpdateChecker();
@@ -3852,7 +3376,6 @@ app.on('will-quit', () => {
   stopHoverSpaceShortcut();
   clearTaskNotificationTimers();
   stopTaskNotificationServer();
-  closeAllTranscriptionSessions();
   globalShortcut.unregisterAll();
   stopClipboardPolling();
   stopUpdateChecker();

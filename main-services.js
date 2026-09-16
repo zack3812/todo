@@ -1,4 +1,4 @@
-const net = require('net');
+﻿const net = require('net');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -159,20 +159,6 @@ function parseSmartMaterialMetadata(value) {
     .replace(/\s+/g, ' ')
     .trim()).slice(0, limit).join('');
   return { title: clean(parsed.title, 48), category: clean(parsed.category, 24) };
-}
-
-function selectTranscriptionSettings(current, legacy) {
-  const currentSettings = current && typeof current === 'object' && !Array.isArray(current) ? current : {};
-  if (Object.keys(currentSettings).length) return currentSettings;
-  return legacy && typeof legacy === 'object' && !Array.isArray(legacy) ? legacy : {};
-}
-
-function recordingExtension(mimeType) {
-  const mime = String(mimeType || '').split(';', 1)[0].trim().toLowerCase();
-  if (mime === 'audio/mp4' || mime === 'audio/m4a' || mime === 'audio/x-m4a') return 'm4a';
-  if (mime === 'audio/ogg') return 'ogg';
-  if (mime === 'audio/wav' || mime === 'audio/x-wav') return 'wav';
-  return 'webm';
 }
 
 function normalizeWindowRows(rows) {
@@ -630,7 +616,6 @@ module.exports = {
   decodeHtmlEntities,
   extractPageTitle,
   extractFaviconHref,
-  recordingExtension,
   normalizeWindowRows,
   todoReminderState,
   todoReminderTimerDelay,
@@ -638,7 +623,6 @@ module.exports = {
   normalizeCredentialInput,
   parseSmartLinkMetadata,
   parseSmartMaterialMetadata,
-  selectTranscriptionSettings,
   clipboardServicePolicy,
   createClipboardImageFingerprint,
   prepareClipboardImagePayload,

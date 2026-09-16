@@ -5,7 +5,6 @@ const {
   isPrivateAddress,
   extractPageTitle,
   extractFaviconHref,
-  recordingExtension,
   normalizeWindowRows,
   todoReminderState,
   todoReminderTimerDelay,
@@ -26,7 +25,6 @@ const {
   updateDefaultTabPreference,
   controlSodaMusic,
   sodaShortcutSpec,
-  selectTranscriptionSettings,
   createWorkspacePersistenceGate,
   hoverSpacePollingPolicy,
   reduceClipboardObservation,
@@ -229,19 +227,7 @@ test('favicon and smart material metadata are normalized safely', () => {
   });
 });
 
-test('transcription settings fall back to the legacy app directory only when current settings are absent', () => {
-  const legacy = { encryptedApiKey: 'legacy-asr', encryptedLlmApiKey: 'legacy-llm' };
-  assert.deepEqual(selectTranscriptionSettings({}, legacy), legacy);
-  assert.deepEqual(selectTranscriptionSettings({ region: 'beijing' }, legacy), { region: 'beijing' });
-  assert.deepEqual(selectTranscriptionSettings(null, null), {});
-});
 
-test('recordingExtension only returns known audio file extensions', () => {
-  assert.equal(recordingExtension('audio/webm;codecs=opus'), 'webm');
-  assert.equal(recordingExtension('audio/mp4'), 'm4a');
-  assert.equal(recordingExtension('audio/ogg'), 'ogg');
-  assert.equal(recordingExtension('application/octet-stream'), 'webm');
-});
 
 test('normalizeWindowRows preserves separate windows and filters empty titles', () => {
   const rows = normalizeWindowRows([

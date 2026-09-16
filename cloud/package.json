@@ -1,0 +1,15 @@
+{
+  "name": "nexusdesk-cloud",
+  "version": "1.0.0",
+  "description": "NexusDesk Cloudflare Worker - 钉钉回调 + WebSocket 网关 + MQTT 桥接",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

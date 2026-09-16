@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+﻿const { contextBridge, ipcRenderer } = require('electron');
 
 // 所有 on* 订阅统一经此注册，并回传退订函数：渲染层若重新初始化，
 // 不退订就会叠加监听器，同一条通知被回调多次。
@@ -46,7 +46,6 @@ contextBridge.exposeInMainWorld('notchAPI', {
   setAutoLaunch: (enabled) => ipcRenderer.invoke('settings:set-auto-launch', enabled === true),
   setPanelShortcut: (accelerator) => ipcRenderer.invoke('settings:set-shortcut', accelerator),
   onAppSettingsChanged: (cb) => subscribe('settings:changed', (event, settings) => cb(settings)),
-  onRecordShortcut: (cb) => subscribe('app:record-shortcut', () => cb()),
   getWorkspace: () => ipcRenderer.invoke('workspace:get'),
   loadWorkspaceData: () => ipcRenderer.invoke('workspace:load-data'),
   saveWorkspaceData: (storage) => ipcRenderer.invoke('workspace:save-data', storage),
@@ -71,9 +70,6 @@ contextBridge.exposeInMainWorld('notchAPI', {
   onNewClipEntry: (cb) => subscribe('clipboard:new-entry', (evt, entry) => cb(entry)),
   onOpenClip: (cb) => subscribe('app:open-clip', () => cb()),
   onOpenApiSettings: (cb) => subscribe('app:open-api-settings', () => cb()),
-  getMirrorImage: () => ipcRenderer.invoke('mirror:get-image'),
-  chooseMirrorImage: () => ipcRenderer.invoke('mirror:choose-image'),
-  onMirrorImageChanged: (cb) => subscribe('mirror:image-changed', (event, dataUrl) => cb(dataUrl)),
   onTaskNotification: (cb) =>
     subscribe('task-notification:show', (event, notification) => cb(notification)),
   onTaskNotificationQueue: (cb) =>

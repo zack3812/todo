@@ -8,9 +8,6 @@ const {
   addLinkToGroups,
   renameGroup,
   createCommand,
-  createRecording,
-  removeRecordingState,
-  calculateRecordingDuration,
   completionMatchesWindow,
   deriveWindowDisplayName,
   numberWindowLabels,
@@ -28,10 +25,8 @@ const {
   resolveHomeWidgetLayout,
   validateHomeWidgetLayout,
   layoutVariantForPlacement,
-  calculateAudioLevel,
   normalizeHomeLayout,
   swapHomeLayoutSlots,
-  resampleFloat32ToPcm16,
   shouldTogglePanelForSpace,
   todoTimeBattery,
   updateRangeSelection,
@@ -259,37 +254,8 @@ test('createCommand and createRecording normalize user-authored metadata', () =>
     createdAt: 100,
   });
   assert.equal(createCommand('   ', 'c2', 100), null);
-  const recording = createRecording({
-    id: 'r1',
-    createdAt: 200,
-    durationMs: 1234.8,
-    transcript: '  第一段录音  ',
-    audioPath: '/tmp/r1.webm',
-    mimeType: 'audio/webm',
-  });
-  assert.equal(recording.id, 'r1');
-  assert.equal(recording.transcript, '第一段录音');
-  assert.notEqual(recording.title, recording.transcript);
-  assert.equal(recording.category, '未分类');
 });
 
-test('single recording deletion removes only its row and keeps a valid active recording', () => {
-  const recordings = [
-    { id: 'first', title: '第一条' },
-    { id: 'second', title: '第二条' },
-    { id: 'third', title: '第三条' },
-  ];
-  assert.deepEqual(removeRecordingState(recordings, 'second', ['first', 'second'], 'second'), {
-    recordings: [recordings[0], recordings[2]],
-    selection: ['first'],
-    selectedId: 'third',
-  });
-  assert.deepEqual(removeRecordingState(recordings, 'third', [], 'first'), {
-    recordings: [recordings[0], recordings[1]],
-    selection: [],
-    selectedId: 'first',
-  });
-});
 
 test('completionMatchesWindow distinguishes projects across VS Code windows', () => {
   const completion = { project: '灵动岛', title: '链接页已完成' };
@@ -303,22 +269,6 @@ test('completionMatchesWindow distinguishes projects across VS Code windows', ()
   }), false);
 });
 
-test('calculateRecordingDuration does not double subtract an active pause', () => {
-  assert.equal(calculateRecordingDuration({
-    startedAt: 1000,
-    status: 'recording',
-    pausedAt: 0,
-    pausedTotalMs: 2000,
-    now: 11000,
-  }), 8000);
-  assert.equal(calculateRecordingDuration({
-    startedAt: 1000,
-    status: 'paused',
-    pausedAt: 6000,
-    pausedTotalMs: 0,
-    now: 8000,
-  }), 5000);
-});
 
 test('window labels expose VS Code workspace names instead of app sequence numbers', () => {
   assert.deepEqual(numberWindowLabels([
@@ -491,14 +441,12 @@ test('settings summary combines safe API status with local device settings', () 
   assert.deepEqual(settingsSummary({
     appSettings: { shortcut: 'Command+Shift+P', autoLaunch: true },
     workspace: { path: '/Users/test/Panel', portable: true },
-    transcription: { configured: true, llmConfigured: false },
   }), {
     shortcut: 'Command+Shift+P',
 defaultTab: 'todo',
     autoLaunch: true,
     workspacePath: '/Users/test/Panel',
     workspaceLabel: '自定义文件夹',
-    transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '未配置', state: 'empty' },
   });
   assert.doesNotMatch(JSON.stringify(settingsSummary({
@@ -588,11 +536,9 @@ test('API credential statuses distinguish saved, missing, and legacy keys that n
     llmConfigured: false,
     llmNeedsReentry: true,
   }), {
-    transcription: { label: '已安全保存', state: 'saved' },
     llm: { label: '需重新输入', state: 'warning' },
   });
   assert.deepEqual(apiCredentialStatuses({}), {
-    transcription: { label: '未配置', state: 'empty' },
     llm: { label: '未配置', state: 'empty' },
   });
 });
@@ -782,16 +728,7 @@ test('home layout validation rejects every incomplete or unsafe shape', () => {
   }, ['music', 'windows'], 12, 4), false);
 });
 
-test('audio level returns stable RMS volume for recording strands', () => {
-  assert.equal(calculateAudioLevel(new Float32Array([0, 0, 0])), 0);
-  assert.equal(calculateAudioLevel(new Float32Array([0.5, -0.5, 0.5, -0.5])), 0.5);
-  assert.equal(calculateAudioLevel(new Float32Array([2, -2])), 1);
-});
 
-test('resampleFloat32ToPcm16 downsamples and clamps audio', () => {
-  const pcm = resampleFloat32ToPcm16(new Float32Array([1.5, 1, -1.5, -1]), 32000, 16000);
-  assert.deepEqual(Array.from(pcm), [32767, -32768]);
-});
 
 test('shouldTogglePanelForSpace toggles plain Space but never steals typing input', () => {
   assert.equal(shouldTogglePanelForSpace({ key: ' ', repeat: false, editable: false }), true);
@@ -801,14 +738,6 @@ test('shouldTogglePanelForSpace toggles plain Space but never steals typing inpu
   assert.equal(shouldTogglePanelForSpace({ key: ' ', repeat: false, editable: false, metaKey: true }), false);
 });
 
-test('mirror pinch zooms only a live camera and stays within safe bounds', () => {
-  assert.equal(domain.shouldHandleMirrorPinch?.({ live: false, ctrlKey: true }), false);
-  assert.equal(domain.shouldHandleMirrorPinch?.({ live: true, ctrlKey: false }), false);
-  assert.equal(domain.shouldHandleMirrorPinch?.({ live: true, ctrlKey: true }), true);
-  assert.equal(domain.adjustMirrorZoom?.(1, -100), 1.2);
-  assert.equal(domain.adjustMirrorZoom?.(1, 100), 1);
-  assert.equal(domain.adjustMirrorZoom?.(2.55, -100), 2.6);
-});
 
 test('todo time battery reports the remaining time with exact color boundaries', () => {
   const deadline = '2026-08-21T10:00:00.000Z';

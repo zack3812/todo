@@ -1071,121 +1071,6 @@ body {
   color: var(--text-3);
 }
 
-/* 镜子 */
-.home-mirror {
-  width: var(--home-mirror-size);
-  height: var(--home-mirror-size);
-  aspect-ratio: 1;
-  place-self: center;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-1);
-  min-width: 0;
-  min-height: 0;
-  background: var(--home-mirror-surface);
-  overflow: hidden;
-}
-
-.mirror-stage {
-  width: 100%;
-  height: 100%;
-  border-radius: var(--r-tile);
-  overflow: hidden;
-  position: relative;
-  padding: 0;
-  border: none;
-  background: var(--surface-2);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.mirror-video {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transform: scaleX(-1) scale(var(--mirror-zoom, 1));
-  display: block;
-  opacity: 0;
-  transition: opacity var(--d-base) var(--ease-out);
-}
-
-.mirror-zoom {
-  position: absolute;
-  top: var(--s-2);
-  right: var(--s-2);
-  z-index: 2;
-  padding: 3px 6px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pill);
-  background: rgba(0, 0, 0, 0.62);
-  color: var(--text-2);
-  font: var(--fs-micro) var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  opacity: 0;
-  transform: translateY(-3px);
-  transition: opacity var(--d-fast) var(--ease), transform var(--d-fast) var(--ease);
-  pointer-events: none;
-}
-
-.mirror-stage:hover .mirror-zoom,
-.mirror-stage:focus-visible .mirror-zoom {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.home-mirror.live .mirror-video {
-  opacity: 1;
-}
-
-.home-mirror.live .mirror-placeholder {
-  opacity: 0;
-}
-
-.mirror-placeholder {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--text-3);
-  transition: opacity var(--d-fast) var(--ease);
-}
-
-.mirror-placeholder svg {
-  width: 30px;
-  height: 30px;
-}
-
-.mirror-label {
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.4px;
-  color: var(--text-3);
-}
-
-.mirror-hint {
-  font-size: 10.5px;
-  font-weight: 400;
-  letter-spacing: 0.2px;
-  color: var(--text-4);
-  text-align: center;
-  max-width: 160px;
-  padding: 0 var(--s-3);
-}
-
-.home-mirror.live .mirror-hint {
-  visibility: hidden;
-}
-
 /* ============ 首页 · 收藏剪贴竖列 ============ */
 .home-clipfav {
   padding: var(--s-3);
@@ -2017,33 +1902,11 @@ body {
 }
 
 /* ============ 工作台升级 · 首页 ============ */
-.home-recorder,
 .home-windows,
 .home-commands {
   min-width: 0;
   min-height: 0;
   background: var(--surface-1);
-}
-
-.home-recorder {
-  padding: var(--s-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-2);
-}
-
-.recorder-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.recorder-head time {
-  margin-left: auto;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: var(--fs-caption);
-  font-variant-numeric: tabular-nums;
 }
 
 .transcription-settings-backdrop {
@@ -2135,72 +1998,6 @@ body {
 .transcription-settings-note.success { color: #65d9a1; }
 .transcription-settings-actions { display: flex; justify-content: flex-end; gap: var(--s-2); margin-top: var(--s-4); }
 .workspace-button.primary { border-color: var(--text-1); background: var(--text-1); color: var(--bg-base); }
-
-.recording-state-dot {
-  width: 7px;
-  height: 7px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--text-4);
-  transition: background var(--d-fast) var(--ease), transform var(--d-fast) var(--ease);
-}
-
-.recording-state-dot[data-state='recording'] {
-  background: var(--p0);
-  animation: recording-pulse 1.6s var(--ease) infinite;
-}
-
-.recording-state-dot[data-state='paused'] {
-  background: var(--accent-orange);
-}
-
-@keyframes recording-pulse {
-  50% { transform: scale(0.65); opacity: 0.55; }
-}
-
-.home-transcript {
-  flex: 1;
-  min-height: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: var(--fs-small);
-  line-height: 1.45;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.recorder-controls {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.record-control {
-  width: 27px;
-  height: 27px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--hairline);
-  border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--text-2);
-  cursor: pointer;
-  transition: background var(--d-fast) var(--ease), color var(--d-fast) var(--ease), transform var(--d-1) var(--ease-out);
-}
-
-.record-control:hover:not(:disabled) {
-  background: var(--surface-3);
-  color: var(--text-1);
-}
-
-.record-control:active:not(:disabled) { transform: scale(0.88); }
-.record-control:disabled { opacity: 0.3; cursor: default; }
-.record-control svg { width: 14px; height: 14px; }
-.record-start span { width: 9px; height: 9px; border-radius: 50%; background: var(--p0); }
-.record-control.resume svg { transform: rotate(90deg); }
 
 .home-windows,
 .home-commands {
@@ -5909,6 +5706,11 @@ body {
   background: var(--item-hover);
   color: var(--text-1);
 }
+.todo-progress-action.todo-progress-done { color: #34c759; font-weight: 600; }
+.todo-progress-action.todo-progress-进行中 { color: #007aff; font-weight: 600; }
+.todo-progress-action.todo-progress-延期 { color: #ff3b30; font-weight: 600; }
+.todo-progress-action.todo-progress-未开始 { color: var(--text-3); }
+.todo-progress-action.todo-progress-none { color: var(--text-4); }
 .todo-progress-backdrop {
   position: fixed;
   inset: 0;

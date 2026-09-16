@@ -52,7 +52,15 @@ async function hydratePortableWorkspace() {
       location.reload();
       return;
     }
-    setInterval(() => window.notchAPI.saveWorkspaceData(collectLocalStorageSnapshot()).catch(() => {}), 2000);
+let lastWorkspaceSnapshotJson = '';
+    setInterval(() => {
+      const snap = collectLocalStorageSnapshot();
+      let json;
+      try { json = JSON.stringify(snap); } catch (error) { return; }
+      if (json === lastWorkspaceSnapshotJson) return;
+      lastWorkspaceSnapshotJson = json;
+      window.notchAPI.saveWorkspaceData(snap).catch(() => {});
+    }, 3000);
   } catch (error) {}
 }
 
@@ -449,6 +457,8 @@ function todoItemHtml(priority, item) {
   const selectedClass = todoSelections[priority]?.has(item.id) ? ' multi-selected' : '';
   const safeId = escapeHtml(item.id);
   const safeText = escapeHtml(item.text);
+  const todoStatus = item.done ? '已完成' : (todoProgress?.[weekKey()]?.[item.id]?.status || '进度');
+  const todoStatusClass = 'todo-progress-' + (item.done ? 'done' : (todoProgress?.[weekKey()]?.[item.id]?.status || 'none'));
   const deadline = Number.isFinite(Date.parse(String(item.deadline || '')))
     ? new Intl.DateTimeFormat('zh-CN', {
       month: 'numeric',
@@ -480,7 +490,7 @@ function todoItemHtml(priority, item) {
       <button class="checkbox" type="button" data-action="toggle" aria-label="${toggleLabel}" aria-pressed="${item.done}">${checkSvg()}</button>
       ${projectChipHtml}
       ${contentHtml}
-      <button class="todo-progress-action" type="button" data-action="progress" aria-label="更新进度：${safeText}" title="更新本周进度">进度</button>
+      <button class="todo-progress-action ${todoStatusClass}" type="button" data-action="progress" aria-label="更新进度：${safeText}" title="更新本周进度">${todoStatus}</button>
       <button class="delete" type="button" data-action="delete" aria-label="删除：${safeText}">×</button>
     </li>
   `;
@@ -568,7 +578,32 @@ function renderAll() {
   });
 }
 
-setInterval(() => PRIORITIES.forEach(renderList), 60_000);
+// 每 60 秒轻量刷新倒计时电量条，避免全量重建列表造成的卡顿
+function refreshBatteryBars() {
+  if (document.hidden) return;
+  const now = Date.now();
+  document.querySelectorAll('.todo-item[data-priority][data-id]').forEach((item) => {
+    const priority = item.dataset.priority;
+    const id = item.dataset.id;
+    const todo = (data[priority] || []).find((t) => t.id === id);
+    const bar = item.querySelector('.todo-battery');
+    if (!todo) { if (bar) bar.remove(); return; }
+    const battery = window.NotchDomain.todoTimeBattery(todo, now);
+    if (!battery) { if (bar) bar.remove(); return; }
+    if (!bar) return;
+    bar.dataset.tone = battery.tone;
+    if (battery.overdue) bar.dataset.overdue = 'true';
+    else delete bar.dataset.overdue;
+    bar.title = battery.label;
+    bar.setAttribute('aria-label', battery.label);
+    const fill = bar.querySelector('i');
+    if (fill) fill.style.setProperty('--battery', (battery.overdue ? 100 : battery.percent) + '%');
+    const label = bar.querySelector('b');
+    if (label) label.textContent = battery.text;
+  });
+}
+
+setInterval(refreshBatteryBars, 60_000);
 
 // 渲染重建 innerHTML 后，给指定条目挂一次性动画类；动画结束即卸载，不污染后续渲染
 function flashItemClass(priority, id, cls) {
@@ -1263,7 +1298,6 @@ function openShortcutRecorder() {
   shortcutRecorderValue.textContent = '等待输入…';
   requestAnimationFrame(() => shortcutRecorder.focus({ preventScroll: true }));
 }
-window.notchAPI?.onRecordShortcut?.(openShortcutRecorder);
 document.addEventListener('notch:record-shortcut', openShortcutRecorder);
 
 if (collapseBtn) {
@@ -1719,7 +1753,13 @@ function saveTodoProgressRecord() {
   };
   saveTodoProgress();
   closeTodoProgress();
+  renderList(priority);
   showStatusToast('本周进度已保存');
+  // 上报云端
+  const todo = (data[priority] || []).find((item) => item.id === id);
+  if (todo && window.NexusDeskSync) {
+    window.NexusDeskSync.reportTodoUpdated({ ...todo, status: todoProgress[key][id].status, progressText: todoProgress[key][id].progress, nextWeek: todoProgress[key][id].nextWeek }, priority);
+  }
 }
 
 todoProgressSave?.addEventListener('click', saveTodoProgressRecord);

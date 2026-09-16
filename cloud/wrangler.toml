@@ -1,0 +1,19 @@
+name = "nexusdesk-cloud"
+main = "src/index.js"
+compatibility_date = "2024-09-01"
+
+# 自定义域名
+routes = [{ pattern = "nexusdesk.dpdns.org/*", zone_name = "nexusdesk.dpdns.org" }]
+
+# 环境变量（敏感信息用 wrangler secret put，不要写在这里）
+[vars]
+DINGTALK_APP_KEY = ""
+
+# KV 命名空间
+[[kv_namespaces]]
+binding = "USER_DB"
+id = "2b1e51098c2240ffa17a687cf3e6c18c"
+
+[[kv_namespaces]]
+binding = "TODO_DB"
+id = "5a2777c3cb294a76898adceb278ec208"

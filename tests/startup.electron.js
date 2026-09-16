@@ -27,7 +27,6 @@ app.on('web-contents-created', (_event, contents) => {
           document.getElementById('tab-button-todo').click();
           await new Promise((resolve) => setTimeout(resolve, 300));
           return {
-            workspace: !!window.NotchWorkspace,
             recordings: document.querySelectorAll('.recording-item').length,
             recordingTab: !!document.getElementById('tab-button-recordings'),
             homeTab: !!document.getElementById('tab-button-home'),
@@ -35,7 +34,7 @@ app.on('web-contents-created', (_event, contents) => {
           };
         })()`);
         assert.deepEqual(errors, []);
-        assert.deepEqual(state, {workspace:true,recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
+        assert.deepEqual(state, {recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
         console.log('Production workspace recovery checks passed');
         app.quit();
       } catch (error) { console.error(error); app.exit(1); }

@@ -253,7 +253,7 @@ async function main() {
       columns: 2,
       api: true,
       mirror: false,
-      features: 5,
+      features: 0,
       homeModules: 0,
       shortcut: true,
       defaultTab: { exists: true, value: 'todo', options: 6 },

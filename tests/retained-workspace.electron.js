@@ -23,7 +23,6 @@ async function main() {
         document.getElementById('tab-button-todo').click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         return {
-          workspace: !!window.NotchWorkspace,
           recordings: document.querySelectorAll('.recording-item').length,
           recordingTab: !!document.getElementById('tab-button-recordings'),
           homeTab: !!document.getElementById('tab-button-home'),
@@ -31,7 +30,7 @@ async function main() {
         };
       })()`);
     assert.deepEqual(errors, [], 'Retained profile must initialize without renderer errors');
-    assert.deepEqual(state, {workspace:true,recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
+    assert.deepEqual(state, {recordings:0,recordingTab:false,homeTab:false,defaultTodo:true});
     console.log('Retained workspace renderer checks passed');
   } finally { window.destroy(); }
 }

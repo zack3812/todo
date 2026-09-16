@@ -225,61 +225,6 @@
     };
   }
 
-  function createRecording(value) {
-    if (!value || typeof value !== 'object') return null;
-    const transcript = String(value.transcript || '').trim();
-    const createdAt = Number.isFinite(value.createdAt) ? value.createdAt : Date.now();
-    const fallbackTitle = new Date(createdAt).toLocaleString('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    return {
-      id: String(value.id || `recording-${Date.now().toString(36)}`),
-      createdAt,
-      durationMs: Math.max(0, Math.round(Number(value.durationMs) || 0)),
-      transcript,
-      audioPath: typeof value.audioPath === 'string' ? value.audioPath : '',
-      mimeType: typeof value.mimeType === 'string' ? value.mimeType : 'audio/webm',
-      title: String(value.title || fallbackTitle).trim(),
-      category: String(value.category || '未分类').replace(/\s+/g, ' ').trim().slice(0, 24),
-    };
-  }
-
-  function removeRecordingState(recordings, recordingId, selection, selectedId) {
-    const rows = Array.isArray(recordings) ? recordings : [];
-    const id = String(recordingId || '');
-    const index = rows.findIndex((recording) => recording && String(recording.id) === id);
-    if (index < 0) {
-      return {
-        recordings: rows.slice(),
-        selection: Array.isArray(selection) ? selection.slice() : [],
-        selectedId: String(selectedId || ''),
-      };
-    }
-    const nextRows = rows.filter((recording) => String(recording && recording.id) !== id);
-    const currentSelectedId = String(selectedId || '');
-    const nextSelectedId = currentSelectedId !== id && nextRows.some((recording) => String(recording.id) === currentSelectedId)
-      ? currentSelectedId
-      : String(nextRows[Math.min(index, nextRows.length - 1)]?.id || '');
-    return {
-      recordings: nextRows,
-      selection: (Array.isArray(selection) ? selection : []).filter((selected) => String(selected) !== id),
-      selectedId: nextSelectedId,
-    };
-  }
-
-  function calculateRecordingDuration(value) {
-    const startedAt = Number(value && value.startedAt) || 0;
-    if (!startedAt) return 0;
-    const pausedAt = Number(value && value.pausedAt) || 0;
-    const now = Number(value && value.now) || Date.now();
-    const end = value && value.status === 'paused' && pausedAt ? pausedAt : now;
-    const pausedTotalMs = Math.max(0, Number(value && value.pausedTotalMs) || 0);
-    return Math.max(0, Math.round(end - startedAt - pausedTotalMs));
-  }
-
   function completionMatchesWindow(completion, windowInfo) {
     const project = String(completion && completion.project || '').trim().toLocaleLowerCase();
     const title = String(windowInfo && windowInfo.title || '').trim().toLocaleLowerCase();
@@ -507,7 +452,6 @@
       return { label: '未配置', state: 'empty' };
     };
     return {
-      transcription: status(Boolean(value.configured), Boolean(value.asrNeedsReentry)),
       llm: status(Boolean(value.llmConfigured), Boolean(value.llmNeedsReentry)),
     };
   }
@@ -522,7 +466,6 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
       autoLaunch: appSettings.autoLaunch === true,
       workspacePath: String(workspace.path || ''),
       workspaceLabel: workspace.portable ? '自定义文件夹' : '默认文件夹',
-      transcription: statuses.transcription,
       llm: statuses.llm,
     };
   }
@@ -893,36 +836,6 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
     return validateHomeWidgetLayout(result, visibleOrder, columns, rows) ? result : null;
   }
 
-  function calculateAudioLevel(samples) {
-    const values = samples instanceof Float32Array ? samples : new Float32Array(samples || []);
-    if (!values.length) return 0;
-    let sumSquares = 0;
-    for (const sample of values) {
-      const clamped = Math.max(-1, Math.min(1, Number(sample) || 0));
-      sumSquares += clamped * clamped;
-    }
-    return Math.round(Math.sqrt(sumSquares / values.length) * 1000) / 1000;
-  }
-
-  function resampleFloat32ToPcm16(samples, inputRate, outputRate = 16000) {
-    const source = samples instanceof Float32Array ? samples : new Float32Array(samples || []);
-    const fromRate = Math.max(1, Number(inputRate) || outputRate);
-    const toRate = Math.max(1, Number(outputRate) || 16000);
-    if (!source.length) return new Int16Array();
-    const ratio = fromRate / toRate;
-    const outputLength = Math.max(1, Math.round(source.length / ratio));
-    const output = new Int16Array(outputLength);
-    for (let outputIndex = 0; outputIndex < outputLength; outputIndex++) {
-      const start = Math.floor(outputIndex * ratio);
-      const end = Math.max(start + 1, Math.min(source.length, Math.floor((outputIndex + 1) * ratio)));
-      let sum = 0;
-      for (let sourceIndex = start; sourceIndex < end; sourceIndex++) sum += source[sourceIndex];
-      const sample = Math.max(-1, Math.min(1, sum / (end - start)));
-      output[outputIndex] = sample < 0 ? Math.round(sample * 0x8000) : Math.round(sample * 0x7fff);
-    }
-    return output;
-  }
-
   function shouldTogglePanelForSpace(event) {
     if (!event || (event.key !== ' ' && event.key !== 'Spacebar' && event.code !== 'Space')) return false;
     return !event.repeat
@@ -931,19 +844,6 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
       && !event.metaKey
       && !event.ctrlKey
       && !event.altKey;
-  }
-
-  function shouldHandleMirrorPinch(event) {
-    return Boolean(event && event.live === true && event.ctrlKey === true);
-  }
-
-  function adjustMirrorZoom(currentZoom, deltaY, minZoom = 1, maxZoom = 2.6) {
-    const min = Number.isFinite(minZoom) ? minZoom : 1;
-    const max = Number.isFinite(maxZoom) && maxZoom >= min ? maxZoom : 2.6;
-    const current = Number.isFinite(currentZoom) ? currentZoom : min;
-    const delta = Number.isFinite(deltaY) ? deltaY : 0;
-    const next = Math.max(min, Math.min(max, current - delta * 0.002));
-    return Math.round(next * 100) / 100;
   }
 
   const PROJECT_PALETTE = ['#5B8CFF', '#FF9F43', '#3DDC97', '#FF5F57', '#A78BFA', '#38BDF8', '#F472B6', '#FACC15'];
@@ -1001,9 +901,6 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
     prependClipboardHistory,
     createExclusiveAsyncTask,
     createCommand,
-    createRecording,
-    removeRecordingState,
-    calculateRecordingDuration,
     completionMatchesWindow,
     deriveWindowDisplayName,
     numberWindowLabels,
@@ -1037,11 +934,7 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
     resolveHomeWidgetLayout,
     validateHomeWidgetLayout,
     layoutVariantForPlacement,
-    calculateAudioLevel,
-    resampleFloat32ToPcm16,
     shouldTogglePanelForSpace,
-    shouldHandleMirrorPinch,
-    adjustMirrorZoom,
     todoProjectColor,
     groupTodosByProject,
     dominantProject,

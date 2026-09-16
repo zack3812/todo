@@ -4,8 +4,7 @@
 
   const COMMANDS_KEY = 'notch-home-commands';
   const LINKS_KEY = 'notch-link-groups';
-  const RECORDINGS_KEY = 'notch-recordings';
-  const HIDDEN_WINDOWS_KEY = 'notch-hidden-windows';
+    const HIDDEN_WINDOWS_KEY = 'notch-hidden-windows';
 
   const COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';
   const DELETE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V5h6v2M7 7l1 12h8l1-12"/></svg>';
@@ -691,32 +690,11 @@
     setLinksStatus('已删除所选链接');
   });
 
-  // ============ 录音与转写 ============
-  const homeRecorder = document.getElementById('home-recorder');
-  const recordingDot = document.getElementById('home-recording-dot');
-  const recordingStateLabel = document.getElementById('home-recording-state');
-  const recordingTime = document.getElementById('home-recording-time');
-  const recordingStrands = document.getElementById('recording-strands');
-  const liveTranscript = document.getElementById('home-live-transcript');
-  const recordStart = document.getElementById('record-start');
-  const recordPause = document.getElementById('record-pause');
-  const recordStop = document.getElementById('record-stop');
-  const recordingNew = document.getElementById('recording-new');
-  const recordingConfigure = document.getElementById('recording-configure');
-  const recordingList = document.getElementById('recording-list');
-  const recordingDetail = document.getElementById('recording-detail');
-  const recordingCount = document.getElementById('recording-count');
-  const recordingBulkDelete = document.getElementById('recording-bulk-delete');
   const transcriptionSettingsBackdrop = document.getElementById('transcription-settings-backdrop');
   const transcriptionSettingsClose = document.getElementById('transcription-settings-close');
   const transcriptionSettingsCancel = document.getElementById('transcription-settings-cancel');
   const transcriptionSettingsTest = document.getElementById('transcription-settings-test');
   const transcriptionSettingsSave = document.getElementById('transcription-settings-save');
-  const transcriptionApiKey = document.getElementById('transcription-api-key');
-  const transcriptionApiStatus = document.getElementById('transcription-api-status');
-  const transcriptionApiHelp = document.getElementById('transcription-api-help');
-  const transcriptionRegion = document.getElementById('transcription-region');
-  const transcriptionWorkspace = document.getElementById('transcription-workspace');
   const llmApiKey = document.getElementById('llm-api-key');
   const llmApiStatus = document.getElementById('llm-api-status');
   const llmApiHelp = document.getElementById('llm-api-help');
@@ -725,12 +703,8 @@
   const llmModelFetch = document.getElementById('llm-model-fetch');
   const transcriptionSettingsNote = document.getElementById('transcription-settings-note');
   const settingsApiConfigure = document.getElementById('settings-api-configure');
-  const settingsTranscriptionStatus = document.getElementById('settings-transcription-status');
   const settingsLlmStatus = document.getElementById('settings-llm-status');
-  const settingsFeatureList = document.getElementById('settings-feature-list');
   const settingsHomeModuleList = document.getElementById('settings-home-module-list');
-  const settingsMirrorPreview = document.getElementById('settings-mirror-preview');
-  const settingsMirrorChoose = document.getElementById('settings-mirror-choose');
   const settingsShortcutValue = document.getElementById('settings-shortcut-value');
   const settingsShortcutChange = document.getElementById('settings-shortcut-change');
   const settingsDefaultTab = document.getElementById('settings-default-tab');
@@ -807,11 +781,16 @@
       nexusdeskSyncConnect.textContent = '登录中…';
       try {
         await window.NexusDeskSync.login(empId, pwd);
+        window.NexusDeskSync.saveSyncConfig({ enabled: true });
+        nexusdeskSyncEnabled.checked = true;
+        nexusdeskConfigFields.hidden = false;
         await window.NexusDeskSync.connect();
         nexusdeskPassword.value = '';
       } catch (e) {
+        var msg = e.message || String(e);
         nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>';
-        nexusdeskSyncStatus.appendChild(document.createTextNode(`登录失败: ${e.message || '未知错误'}`));
+        nexusdeskSyncStatus.appendChild(document.createTextNode('登录失败: ' + msg));
+        alert('登录错误: ' + msg + '\n请把这个错误信息告诉我');
       }
       refreshNexusdeskStatus();
     });
@@ -824,27 +803,6 @@
     });
   }
 
-  let recordings = loadJson(RECORDINGS_KEY, []).map(Domain.createRecording).filter(Boolean);
-  let selectedRecordingId = recordings[0] && recordings[0].id;
-  let recordingSelection = new Set();
-  let recordingSelectionAnchor = selectedRecordingId || null;
-  let mediaStream = null;
-  let mediaRecorder = null;
-  let audioChunks = [];
-  let speechRecognition = null;
-  let speechRecognitionBlocked = false;
-  let speechRecognitionError = '';
-  let recordingStatus = 'idle';
-  let recordingStartedAt = 0;
-  let pausedAt = 0;
-  let pausedTotalMs = 0;
-  let recordingTranscript = '';
-  let interimTranscript = '';
-  let recordingTimer = null;
-  let recordingStopDurationMs = 0;
-  let recordingCaptureIssue = '';
-  let recordingDraftId = '';
-  let currentAudioUrl = '';
   let transcriptionConfig = {
     configured: false,
     asrNeedsReentry: false,
@@ -857,138 +815,6 @@
   };
   let settingsAppSettings = null;
   let settingsWorkspace = null;
-  let transcriptionStatus = 'idle';
-  let transcriptionAudioGap = false;
-  let transcriptionStartPromise = null;
-  let transcriptionAudioContext = null;
-  let transcriptionAudioSource = null;
-  let transcriptionAudioProcessor = null;
-  let transcriptionAudioMute = null;
-  let transcriptionFinishPromise = null;
-  let strandsAudioContext = null;
-  let strandsAudioSource = null;
-  let strandsAnalyser = null;
-  let strandsFrame = null;
-  let strandsSamples = null;
-  let strandsLevel = 0;
-  const recordingStartTask = Domain.createExclusiveAsyncTask(() => updateRecordingUi());
-
-  function isRecordingActive() {
-    return ['recording', 'paused', 'saving'].includes(recordingStatus);
-  }
-
-  function isRecordingBusy() {
-    return recordingStartTask.isPending() || isRecordingActive();
-  }
-
-  function stopRecordingStrands() {
-    if (strandsFrame) cancelAnimationFrame(strandsFrame);
-    strandsFrame = null;
-    try { strandsAudioSource?.disconnect(); } catch (error) {}
-    if (strandsAudioContext) strandsAudioContext.close().catch(() => {});
-    strandsAudioContext = null;
-    strandsAudioSource = null;
-    strandsAnalyser = null;
-    strandsSamples = null;
-    strandsLevel = 0;
-    const context = recordingStrands?.getContext('2d');
-    context?.clearRect(0, 0, recordingStrands.width, recordingStrands.height);
-  }
-
-  function drawRecordingStrands(now) {
-    if (!recordingStrands || !strandsAnalyser || !strandsSamples) {
-      strandsFrame = null;
-      return;
-    }
-    const bounds = recordingStrands.getBoundingClientRect();
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const width = Math.max(1, Math.round(bounds.width * dpr));
-    const height = Math.max(1, Math.round(bounds.height * dpr));
-    if (recordingStrands.width !== width || recordingStrands.height !== height) {
-      recordingStrands.width = width;
-      recordingStrands.height = height;
-    }
-    strandsAnalyser.getFloatTimeDomainData(strandsSamples);
-    const measured = recordingStatus === 'recording' ? Domain.calculateAudioLevel(strandsSamples) : 0;
-    strandsLevel += (measured - strandsLevel) * (measured > strandsLevel ? 0.34 : 0.08);
-    const context = recordingStrands.getContext('2d');
-    context.clearRect(0, 0, width, height);
-    context.save();
-    context.scale(dpr, dpr);
-    context.globalCompositeOperation = 'lighter';
-    const cssWidth = bounds.width;
-    const cssHeight = bounds.height;
-    const activeLevel = Math.min(1, strandsLevel * 6);
-    const centerY = cssHeight * 0.55;
-    const phase = now * 0.00115;
-    const colors = [
-      ['rgba(82, 224, 255, 0)', `rgba(82, 224, 255, ${0.2 + activeLevel * 0.44})`, 'rgba(82, 224, 255, 0)'],
-      ['rgba(111, 128, 255, 0)', `rgba(111, 128, 255, ${0.22 + activeLevel * 0.5})`, 'rgba(111, 128, 255, 0)'],
-      ['rgba(209, 96, 255, 0)', `rgba(209, 96, 255, ${0.19 + activeLevel * 0.46})`, 'rgba(209, 96, 255, 0)'],
-      ['rgba(255, 102, 184, 0)', `rgba(255, 102, 184, ${0.17 + activeLevel * 0.4})`, 'rgba(255, 102, 184, 0)'],
-      ['rgba(255, 210, 91, 0)', `rgba(255, 210, 91, ${0.14 + activeLevel * 0.34})`, 'rgba(255, 210, 91, 0)'],
-    ];
-    context.filter = `blur(${8 + activeLevel * 10}px)`;
-    colors.forEach((palette, layer) => {
-      const gradient = context.createLinearGradient(cssWidth * 0.08, 0, cssWidth * 0.92, 0);
-      gradient.addColorStop(0, palette[0]);
-      gradient.addColorStop(0.36 + layer * 0.025, palette[1]);
-      gradient.addColorStop(0.72 - layer * 0.02, palette[1]);
-      gradient.addColorStop(1, palette[2]);
-      const heightScale = cssHeight * (0.06 + layer * 0.012 + activeLevel * (0.18 + layer * 0.014));
-      const drift = Math.sin(phase + layer * 0.92) * cssHeight * 0.025;
-      context.beginPath();
-      context.moveTo(cssWidth * 0.04, centerY);
-      for (let x = cssWidth * 0.04; x <= cssWidth * 0.96; x += 5) {
-        const progress = (x - cssWidth * 0.04) / (cssWidth * 0.92);
-        const envelope = Math.sin(Math.PI * progress) ** (1.45 + layer * 0.08);
-        const ripple = Math.sin(progress * Math.PI * (2.2 + layer * 0.18) + phase + layer) * heightScale * 0.16;
-        context.lineTo(x, centerY - envelope * heightScale - ripple + drift);
-      }
-      for (let x = cssWidth * 0.96; x >= cssWidth * 0.04; x -= 5) {
-        const progress = (x - cssWidth * 0.04) / (cssWidth * 0.92);
-        const envelope = Math.sin(Math.PI * progress) ** (1.45 + layer * 0.08);
-        const ripple = Math.cos(progress * Math.PI * (2 + layer * 0.14) - phase - layer) * heightScale * 0.14;
-        context.lineTo(x, centerY + envelope * heightScale + ripple + drift);
-      }
-      context.closePath();
-      context.fillStyle = gradient;
-      context.globalAlpha = 0.58 - layer * 0.055;
-      context.fill();
-    });
-    context.filter = 'blur(2px)';
-    const core = context.createLinearGradient(cssWidth * 0.16, 0, cssWidth * 0.84, 0);
-    core.addColorStop(0, 'rgba(66, 191, 255, 0)');
-    core.addColorStop(0.34, `rgba(172, 238, 255, ${0.3 + activeLevel * 0.55})`);
-    core.addColorStop(0.58, `rgba(255, 209, 255, ${0.38 + activeLevel * 0.58})`);
-    core.addColorStop(0.78, `rgba(255, 213, 117, ${0.24 + activeLevel * 0.5})`);
-    core.addColorStop(1, 'rgba(255, 130, 196, 0)');
-    context.globalAlpha = 1;
-    context.fillStyle = core;
-    context.fillRect(cssWidth * 0.08, centerY - 1.3 - activeLevel, cssWidth * 0.84, 2.6 + activeLevel * 2);
-    context.restore();
-    homeRecorder?.style.setProperty('--recording-level', strandsLevel.toFixed(3));
-    strandsFrame = requestAnimationFrame(drawRecordingStrands);
-  }
-
-  function startRecordingStrands(stream) {
-    stopRecordingStrands();
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext || !stream || !recordingStrands) return;
-    try {
-      strandsAudioContext = new AudioContext();
-      strandsAudioSource = strandsAudioContext.createMediaStreamSource(stream);
-      strandsAnalyser = strandsAudioContext.createAnalyser();
-      strandsAnalyser.fftSize = 512;
-      strandsAnalyser.smoothingTimeConstant = 0.72;
-      strandsSamples = new Float32Array(strandsAnalyser.fftSize);
-      strandsAudioSource.connect(strandsAnalyser);
-      strandsFrame = requestAnimationFrame(drawRecordingStrands);
-    } catch (error) {
-      stopRecordingStrands();
-    }
-  }
-
   function updateTranscriptionConfigUi() {
     const configured = Boolean(transcriptionConfig.configured || transcriptionConfig.llmConfigured);
     if (llmApiStatus) {
@@ -1016,12 +842,6 @@
     settingsInlineNote.classList.toggle('error', error);
   }
 
-  function applySettingsMirrorCover(dataUrl) {
-    if (settingsMirrorPreview && typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) {
-      settingsMirrorPreview.src = dataUrl;
-    }
-  }
-
   function renderSettingsPanel() {
     const aiStatus = {
       ...transcriptionConfig,
@@ -1033,10 +853,6 @@
       workspace: settingsWorkspace,
       transcription: aiStatus,
     });
-    if (settingsTranscriptionStatus) {
-      settingsTranscriptionStatus.textContent = summary.transcription.label;
-      settingsTranscriptionStatus.dataset.state = summary.transcription.state;
-    }
     if (settingsLlmStatus) {
       settingsLlmStatus.textContent = summary.llm.label;
       settingsLlmStatus.dataset.state = summary.llm.state;
@@ -1044,7 +860,6 @@
     if (settingsShortcutValue) settingsShortcutValue.textContent = summary.shortcut;
     if (settingsDefaultTab) {
       const visibleTabs = new Set(Domain.visiblePanelTabs(
-['todo', 'notes', 'links', 'recordings', 'credentials', 'clip', 'settings'],
         settingsAppSettings?.features
       ));
       Array.from(settingsDefaultTab.options).forEach((option) => {
@@ -1064,26 +879,19 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       settingsWorkspacePath.title = summary.workspacePath || '';
     }
     if (settingsAutoLaunch) settingsAutoLaunch.checked = summary.autoLaunch;
-    settingsFeatureList?.querySelectorAll('input[data-settings-feature]').forEach((input) => {
-      input.checked = settingsAppSettings?.features?.[input.dataset.settingsFeature] !== false;
-    });
     renderHomeModuleSettings();
   }
 
   function renderHomeModuleSettings() {
     const state = window.NotchHome?.getVisibility?.();
     const hidden = new Set(state?.hiddenIds || []);
-    const recordingActive = window.NotchWorkspace?.isRecordingActive?.() ?? isRecordingActive();
     settingsHomeModuleList?.querySelectorAll('input[data-settings-home-module]').forEach((input) => {
       const moduleId = input.dataset.settingsHomeModule;
       const unavailable = state?.unavailableIds?.includes(moduleId) === true;
       input.closest('label').hidden = unavailable;
       input.checked = !hidden.has(moduleId);
       input.disabled = unavailable || state?.readOnly === true
-        || (moduleId === 'recorder' && recordingActive && input.checked);
     });
-    const recorderNote = settingsHomeModuleList?.querySelector('[data-home-module-setting-note="recorder"]');
-    if (recorderNote) recorderNote.textContent = recordingActive ? '录音进行中' : '录音与转写';
     const status = document.getElementById('settings-home-module-status');
     if (status) {
       status.textContent = state?.readOnly
@@ -1097,20 +905,17 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
 
   async function refreshSettingsPanel() {
     if (!window.notchAPI) return;
-    const [appSettings, workspace, config, mirrorImage] = await Promise.all([
+    const [appSettings, workspace, config] = await Promise.all([
       window.notchAPI.getAppSettings?.().catch(() => null),
       window.notchAPI.getWorkspace?.().catch(() => null),
       window.notchAPI.getAiConfig?.().catch(() => null),
-      window.notchAPI.getMirrorImage?.().catch(() => null),
     ]);
     if (appSettings) settingsAppSettings = appSettings;
     if (workspace) settingsWorkspace = workspace;
     if (config) {
       transcriptionConfig = { ...config, llmConfigured: config.configured, llmBaseUrl: config.baseUrl, llmModel: config.model };
       updateTranscriptionConfigUi();
-      updateRecordingUi();
     }
-    applySettingsMirrorCover(mirrorImage);
     renderSettingsPanel();
   }
 
@@ -1121,7 +926,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       if (config) transcriptionConfig = { ...config, llmConfigured: config.configured, llmBaseUrl: config.baseUrl, llmModel: config.model };
     } catch (error) {}
     updateTranscriptionConfigUi();
-    updateRecordingUi();
     renderSettingsPanel();
   }
 
@@ -1136,7 +940,7 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
         : '请输入 Base URL 和 API Key；模型可自动获取，也可手动填写。';
     if (llmApiKey) llmApiKey.value = '';
     updateTranscriptionConfigUi();
-    setTimeout(() => transcriptionApiKey?.focus(), 0);
+    setTimeout(() => llmApiKey?.focus(), 0);
   }
 
   function closeTranscriptionSettings() {
@@ -1176,7 +980,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       return;
     }
     transcriptionConfig = { ...result, llmConfigured: result.configured, llmBaseUrl: result.baseUrl, llmModel: result.model };
-    if (transcriptionApiKey) transcriptionApiKey.value = '';
     if (llmApiKey) llmApiKey.value = '';
     updateTranscriptionConfigUi();
     transcriptionSettingsNote.classList.remove('error');
@@ -1191,537 +994,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
     renderSettingsPanel();
   }
 
-  function persistRecordings() {
-    saveJson(RECORDINGS_KEY, recordings.filter((recording) => !recording.isDraft));
-  }
-
-  function currentDuration() {
-    return Domain.calculateRecordingDuration({
-      startedAt: recordingStartedAt,
-      status: recordingStatus,
-      pausedAt,
-      pausedTotalMs,
-      now: Date.now(),
-    });
-  }
-
-  function activeRecordingDraft() {
-    return recordingDraftId && recordings.find((recording) => recording.id === recordingDraftId) || null;
-  }
-
-  function currentRecordingText() {
-    return `${recordingTranscript} ${interimTranscript}`.trim();
-  }
-
-  function currentRecordingFeedback() {
-    if (recordingStartTask.isPending()) return '等待确认麦克风权限…';
-    if (recordingCaptureIssue) return recordingCaptureIssue;
-    if (recordingStatus === 'saving') return '正在保存录音…';
-    if (transcriptionConfig.asrNeedsReentry) return '转写密钥已失效 · 请重新配置 API Key';
-    if (transcriptionStatus === 'browser-error') return '未配置转写 API · 音频仍在录制';
-    if (transcriptionStatus === 'error') return '转写连接失败 · 音频仍在录制';
-    if (transcriptionStatus === 'reconnecting') return '转写中断，正在自动重连 · 音频仍在录制';
-    if (transcriptionStatus === 'connecting') return '正在连接转写服务';
-    if (transcriptionAudioGap) return '断线期间部分转写可能缺失 · 完整音频仍在本机录制';
-    if (recordingStatus === 'paused') return '录音已暂停';
-    if (!transcriptionConfig.configured && !currentRecordingText()) return '未配置转写 API · 音频仍会保存在本机';
-    return '正在录音';
-  }
-
-  function beginRecordingDraft() {
-    recordingDraftId = uid('recording');
-    const draft = {
-      ...Domain.createRecording({
-        id: recordingDraftId,
-        createdAt: recordingStartedAt,
-        durationMs: 0,
-        transcript: '',
-      }),
-      isDraft: true,
-    };
-    recordings.unshift(draft);
-    selectedRecordingId = draft.id;
-    recordingSelectionAnchor = draft.id;
-    renderRecordings();
-  }
-
-  function discardRecordingDraft() {
-    if (!recordingDraftId) return;
-    recordings = recordings.filter((recording) => recording.id !== recordingDraftId);
-    recordingSelection.delete(recordingDraftId);
-    selectedRecordingId = recordings[0]?.id || '';
-    recordingSelectionAnchor = selectedRecordingId || null;
-    recordingDraftId = '';
-    renderRecordings();
-  }
-
-  function syncRecordingDraftUi() {
-    const draft = activeRecordingDraft();
-    if (!draft) return;
-    const durationMs = recordingStopDurationMs || currentDuration();
-    const text = currentRecordingText();
-    draft.durationMs = durationMs;
-    draft.transcript = recordingTranscript;
-    const row = recordingList?.querySelector(`.recording-item[data-id="${CSS.escape(draft.id)}"]`);
-    const preview = row?.querySelector('[data-recording-preview]');
-    const meta = row?.querySelector('[data-recording-meta]');
-    if (preview) preview.textContent = text || currentRecordingFeedback();
-    if (meta) meta.textContent = `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(durationMs)}`;
-    if (selectedRecordingId !== draft.id) return;
-    const detailState = recordingDetail?.querySelector('[data-recording-live-state]');
-    const detailDot = recordingDetail?.querySelector('[data-recording-live-dot]');
-    const detailTime = recordingDetail?.querySelector('[data-recording-live-time]');
-    const detailTranscript = recordingDetail?.querySelector('[data-recording-live-transcript]');
-    const detailFeedback = recordingDetail?.querySelector('[data-recording-live-feedback]');
-    const detailConfigure = recordingDetail?.querySelector('[data-action="configure-transcription"]');
-    const detailPause = recordingDetail?.querySelector('.recording-live-pause');
-    const detailStop = recordingDetail?.querySelector('.recording-live-stop');
-    if (detailState) detailState.textContent = recordingStatus === 'saving' ? '正在保存' : recordingStatus === 'paused' ? '已暂停' : '正在录音';
-    if (detailDot) detailDot.dataset.state = recordingStatus;
-    if (detailTime) detailTime.textContent = formatClock(durationMs);
-    if (detailTranscript && detailTranscript.value !== text) detailTranscript.value = text;
-    if (detailFeedback) detailFeedback.textContent = currentRecordingFeedback();
-    if (detailConfigure) detailConfigure.hidden = transcriptionConfig.configured && !transcriptionConfig.asrNeedsReentry;
-    if (detailPause) {
-      detailPause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
-      detailPause.disabled = recordingStatus === 'saving';
-    }
-    if (detailStop) detailStop.disabled = recordingStatus === 'saving';
-  }
-
-  function stopTranscriptionAudioPipeline() {
-    if (transcriptionAudioProcessor) {
-      transcriptionAudioProcessor.onaudioprocess = null;
-      try { transcriptionAudioProcessor.disconnect(); } catch (error) {}
-    }
-    if (transcriptionAudioSource) {
-      try { transcriptionAudioSource.disconnect(); } catch (error) {}
-    }
-    if (transcriptionAudioMute) {
-      try { transcriptionAudioMute.disconnect(); } catch (error) {}
-    }
-    if (transcriptionAudioContext) transcriptionAudioContext.close().catch(() => {});
-    transcriptionAudioContext = null;
-    transcriptionAudioSource = null;
-    transcriptionAudioProcessor = null;
-    transcriptionAudioMute = null;
-  }
-
-  function sendTranscriptionPcm(buffer) {
-    if (!buffer || !buffer.byteLength || !window.notchAPI) return;
-    if (['connecting', 'connected', 'reconnecting'].includes(transcriptionStatus)) {
-      window.notchAPI.sendTranscriptionAudio(buffer);
-    }
-  }
-
-  function startTranscriptionAudioPipeline(stream) {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext || !stream) return false;
-    try {
-      transcriptionAudioContext = new AudioContext({ sampleRate: 16000 });
-      transcriptionAudioSource = transcriptionAudioContext.createMediaStreamSource(stream);
-      transcriptionAudioProcessor = transcriptionAudioContext.createScriptProcessor(4096, 1, 1);
-      transcriptionAudioMute = transcriptionAudioContext.createGain();
-      transcriptionAudioMute.gain.value = 0;
-      transcriptionAudioProcessor.onaudioprocess = (event) => {
-        if (recordingStatus !== 'recording') return;
-        const source = event.inputBuffer.getChannelData(0);
-        const pcm = Domain.resampleFloat32ToPcm16(source, transcriptionAudioContext.sampleRate, 16000);
-        sendTranscriptionPcm(pcm.buffer);
-      };
-      transcriptionAudioSource.connect(transcriptionAudioProcessor);
-      transcriptionAudioProcessor.connect(transcriptionAudioMute);
-      transcriptionAudioMute.connect(transcriptionAudioContext.destination);
-      return true;
-    } catch (error) {
-      stopTranscriptionAudioPipeline();
-      return false;
-    }
-  }
-
-  async function startCloudTranscription() {
-    if (!transcriptionConfig.configured || !window.notchAPI || !mediaStream) return { ok: false, error: 'not_configured' };
-    transcriptionStatus = 'connecting';
-    startTranscriptionAudioPipeline(mediaStream);
-    updateRecordingUi();
-    let result;
-    try {
-      result = await window.notchAPI.startTranscription();
-    } catch (error) {
-      result = { ok: false, error: 'connection_failed' };
-    }
-    if (recordingStatus !== 'recording' && recordingStatus !== 'paused') return result;
-    if (!result || !result.ok) {
-      transcriptionStatus = 'error';
-      stopTranscriptionAudioPipeline();
-      updateRecordingUi();
-      return result || { ok: false };
-    }
-    if (transcriptionStatus === 'connecting') transcriptionStatus = 'connected';
-    updateRecordingUi();
-    return result;
-  }
-
-  async function finishCloudTranscription() {
-    if (!transcriptionStartPromise) return { ok: false, error: 'not_active', transcript: recordingTranscript };
-    stopTranscriptionAudioPipeline();
-    // Send finish immediately: waiting for a reconnect here could block saving for a minute.
-    transcriptionStartPromise = null;
-    transcriptionStatus = 'finishing';
-    updateRecordingUi();
-    let result;
-    try {
-      result = await window.notchAPI.finishTranscription();
-    } catch (error) {
-      result = { ok: false, error: 'finish_failed', transcript: currentRecordingText() };
-    }
-    recordingTranscript = result?.transcript || currentRecordingText();
-    transcriptionStatus = result && result.ok ? 'idle' : 'error';
-    interimTranscript = '';
-    updateRecordingUi();
-    return result;
-  }
-
-  if (window.notchAPI && typeof window.notchAPI.onTranscriptionEvent === 'function') {
-    window.notchAPI.onTranscriptionEvent((event) => {
-      if (!event || !['recording', 'paused', 'saving'].includes(recordingStatus)) return;
-      if (event.type === 'transcript') {
-        recordingTranscript = String(event.final || '').trim();
-        interimTranscript = String(event.interim || '').trim();
-      } else if (event.type === 'error') {
-        transcriptionStatus = 'error';
-      } else if (event.type === 'status' && ['connected', 'reconnecting'].includes(event.status)) {
-        if (transcriptionStatus !== 'finishing') transcriptionStatus = event.status;
-      } else if (event.type === 'warning' && event.code === 'audio_gap') {
-        transcriptionAudioGap = true;
-      }
-      updateRecordingUi();
-    });
-  }
-
-  function updateRecordingUi() {
-    const recordingActive = isRecordingActive();
-    const recordingBusy = isRecordingBusy();
-    const visualState = recordingStartTask.isPending() ? 'requesting' : recordingStatus;
-    if (homeRecorder) homeRecorder.dataset.state = visualState;
-    if (recordingDot) recordingDot.dataset.state = visualState;
-    if (recordingStateLabel) {
-      recordingStateLabel.textContent = recordingStartTask.isPending()
-        ? '等待录音权限'
-        : recordingStatus === 'recording'
-        ? '正在录音'
-        : recordingStatus === 'paused'
-          ? '已暂停'
-          : recordingStatus === 'saving'
-            ? '正在保存'
-            : '快速录音';
-    }
-    if (recordingTime) recordingTime.textContent = formatClock(recordingActive ? currentDuration() : 0);
-    if (recordStart) recordStart.disabled = recordingBusy;
-    if (recordPause) {
-      recordPause.disabled = !['recording', 'paused'].includes(recordingStatus);
-      recordPause.setAttribute('aria-label', recordingStatus === 'paused' ? '继续录音' : '暂停录音');
-      recordPause.classList.toggle('resume', recordingStatus === 'paused');
-    }
-    if (recordStop) recordStop.disabled = !['recording', 'paused'].includes(recordingStatus);
-    if (recordingNew) {
-      recordingNew.disabled = recordingBusy;
-      recordingNew.textContent = recordingBusy ? '录制' : '录音';
-      recordingNew.setAttribute('aria-label', recordingStartTask.isPending()
-        ? '正在请求麦克风权限'
-        : recordingActive ? '录音进行中' : '开始录音');
-    }
-    if (liveTranscript && recordingBusy) {
-      const text = currentRecordingText();
-      // asrNeedsReentry = 密文还在但当前应用解不开它。safeStorage 的密钥存在钥匙串里、
-      // ACL 绑代码签名，所以开发版存的 Key 装成 DMG 后就读不出来（ad-hoc 签名每次打包
-      // 都会换 cdhash，也是同样的结果）。这种情况下录音正常、只有转写不工作，
-      // 原来只在设置面板里提示一行，录音的人看不到，表现就是「能录但不转写」。
-      const fallback = currentRecordingFeedback();
-      const needsAttention = recordingCaptureIssue || transcriptionAudioGap
-        || ['error', 'reconnecting', 'connecting', 'browser-error'].includes(transcriptionStatus);
-      liveTranscript.textContent = needsAttention && text ? `${fallback}\n${text}` : text || fallback;
-      liveTranscript.hidden = !(text || fallback);
-    }
-    syncRecordingDraftUi();
-    renderHomeModuleSettings();
-    document.dispatchEvent(new CustomEvent('notch:recording-state-changed', {
-      detail: { active: recordingBusy },
-    }));
-  }
-
-  function stopSpeechRecognition() {
-    const recognition = speechRecognition;
-    speechRecognition = null;
-    if (recognition) {
-      try { recognition.stop(); } catch (error) {}
-    }
-    interimTranscript = '';
-  }
-
-  function startSpeechRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      transcriptionStatus = 'browser-error';
-      updateRecordingUi();
-      return;
-    }
-    if (speechRecognitionBlocked || recordingStatus !== 'recording') return;
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'zh-CN';
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.onresult = (event) => {
-      interimTranscript = '';
-      for (let index = event.resultIndex; index < event.results.length; index++) {
-        const text = String(event.results[index][0] && event.results[index][0].transcript || '').trim();
-        if (!text) continue;
-        if (event.results[index].isFinal) {
-          recordingTranscript = `${recordingTranscript} ${text}`.trim();
-        } else {
-          interimTranscript = `${interimTranscript} ${text}`.trim();
-        }
-      }
-      updateRecordingUi();
-    };
-    recognition.onerror = (event) => {
-      interimTranscript = '';
-      speechRecognitionError = String(event && event.error || 'unknown');
-      if (['network', 'not-allowed', 'service-not-allowed', 'audio-capture'].includes(speechRecognitionError)) {
-        speechRecognitionBlocked = true;
-        transcriptionStatus = 'browser-error';
-      }
-      updateRecordingUi();
-    };
-    recognition.onend = () => {
-      if (speechRecognition !== recognition) return;
-      speechRecognition = null;
-      if (recordingStatus === 'recording' && !speechRecognitionBlocked) setTimeout(startSpeechRecognition, 180);
-    };
-    speechRecognition = recognition;
-    try {
-      recognition.start();
-    } catch (error) {
-      speechRecognition = null;
-    }
-  }
-
-  function stopMediaTracks() {
-    stopRecordingStrands();
-    if (mediaStream) {
-      mediaStream.getTracks().forEach((track) => track.stop());
-      mediaStream = null;
-    }
-  }
-
-  function chooseRecordingMimeType() {
-    const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
-    return candidates.find((type) => window.MediaRecorder && MediaRecorder.isTypeSupported(type)) || '';
-  }
-
-  async function finalizeRecording(blob, durationMs) {
-    recordingStatus = 'saving';
-    updateRecordingUi();
-    if (!blob || blob.size === 0) {
-      recordingStatus = 'idle';
-      recordingCaptureIssue = '';
-      discardRecordingDraft();
-      if (liveTranscript) {
-        liveTranscript.textContent = '录音为空 · 请检查麦克风输入';
-        liveTranscript.hidden = false;
-      }
-      updateRecordingUi();
-      return;
-    }
-    let saved;
-    try {
-      saved = window.notchAPI && await window.notchAPI.saveRecording({
-        bytes: await blob.arrayBuffer(),
-        mimeType: blob.type || 'audio/webm',
-      });
-    } catch (error) {
-      saved = null;
-    }
-    if (saved && saved.ok) {
-      const draft = activeRecordingDraft();
-      const recording = Domain.createRecording({
-        id: draft?.id || uid('recording'),
-        createdAt: draft?.createdAt || Date.now(),
-        durationMs,
-        transcript: recordingTranscript,
-        audioPath: saved.audioPath,
-        mimeType: saved.mimeType || blob.type,
-      });
-      const draftIndex = recordings.findIndex((item) => item.id === recording.id);
-      if (draftIndex >= 0) recordings.splice(draftIndex, 1, recording);
-      else recordings.unshift(recording);
-      recordingDraftId = '';
-      selectedRecordingId = recording.id;
-      persistRecordings();
-      renderRecordings();
-      if (recording.transcript && window.notchAPI?.organizeMaterial) {
-        window.notchAPI.organizeMaterial({ kind: 'recording', text: recording.transcript }).then((metadata) => {
-          const target = recordings.find((item) => item.id === recording.id);
-          if (!target || !metadata || !metadata.ok) return;
-          target.title = metadata.title || target.title;
-          target.category = metadata.category || target.category;
-          persistRecordings();
-          renderRecordings();
-        }).catch(() => {});
-      }
-      if (liveTranscript) {
-        liveTranscript.textContent = recording.transcript || (transcriptionConfig.configured
-          ? '录音已保存 · 暂无转写'
-          : '录音已保存 · 请配置转写 API');
-        liveTranscript.hidden = false;
-      }
-    } else {
-      discardRecordingDraft();
-      if (liveTranscript) {
-        liveTranscript.textContent = '录音保存失败，请检查本机存储权限';
-        liveTranscript.hidden = false;
-      }
-    }
-    recordingStatus = 'idle';
-    recordingStartedAt = 0;
-    pausedAt = 0;
-    pausedTotalMs = 0;
-    audioChunks = [];
-    recordingTranscript = '';
-    interimTranscript = '';
-    recordingCaptureIssue = '';
-    updateRecordingUi();
-  }
-
-  async function startRecordingAttempt() {
-    if (recordingStatus !== 'idle' || !navigator.mediaDevices || !window.MediaRecorder) return;
-    try {
-      if (window.notchAPI && !(await window.notchAPI.ensureMicrophone())) {
-        if (liveTranscript) {
-          liveTranscript.textContent = '无法访问麦克风 · 请在系统设置中授权';
-          liveTranscript.hidden = false;
-        }
-        return;
-      }
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
-      const audioTrack = mediaStream.getAudioTracks()[0];
-      if (!audioTrack || audioTrack.readyState !== 'live') throw new Error('audio_track_unavailable');
-      recordingCaptureIssue = '';
-      audioTrack.addEventListener('mute', () => {
-        if (!['recording', 'paused'].includes(recordingStatus)) return;
-        recordingCaptureIssue = '麦克风无输入 · 请检查系统音源';
-        updateRecordingUi();
-      });
-      audioTrack.addEventListener('unmute', () => {
-        recordingCaptureIssue = '';
-        updateRecordingUi();
-      });
-      startRecordingStrands(mediaStream);
-      const mimeType = chooseRecordingMimeType();
-      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
-      audioChunks = [];
-      recordingTranscript = '';
-      interimTranscript = '';
-      speechRecognitionBlocked = false;
-      speechRecognitionError = '';
-      recordingStartedAt = Date.now();
-      recordingStopDurationMs = 0;
-      pausedTotalMs = 0;
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data && event.data.size) audioChunks.push(event.data);
-      };
-      mediaRecorder.onerror = () => {
-        recordingCaptureIssue = '录音中断 · 请重新开始';
-        updateRecordingUi();
-      };
-      mediaRecorder.onstop = async () => {
-        const durationMs = recordingStopDurationMs || currentDuration();
-        const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || mimeType || 'audio/webm' });
-        stopMediaTracks();
-        if (transcriptionFinishPromise) {
-          await transcriptionFinishPromise;
-          transcriptionFinishPromise = null;
-        }
-        finalizeRecording(blob, durationMs);
-      };
-      mediaRecorder.start(1000);
-      recordingStatus = 'recording';
-      transcriptionStatus = 'idle';
-      transcriptionAudioGap = false;
-      transcriptionStartPromise = null;
-      transcriptionFinishPromise = null;
-      beginRecordingDraft();
-      if (transcriptionConfig.configured) {
-        transcriptionStartPromise = startCloudTranscription();
-      } else {
-        startSpeechRecognition();
-      }
-      clearInterval(recordingTimer);
-      recordingTimer = setInterval(updateRecordingUi, 500);
-      updateRecordingUi();
-    } catch (error) {
-      stopMediaTracks();
-      recordingStatus = 'idle';
-      recordingCaptureIssue = '';
-      discardRecordingDraft();
-      if (liveTranscript) {
-        liveTranscript.textContent = '无法开始录音 · 请检查麦克风权限';
-        liveTranscript.hidden = false;
-      }
-      updateRecordingUi();
-    }
-  }
-
-  function startRecording() {
-    return recordingStartTask.run(startRecordingAttempt);
-  }
-
-  function togglePauseRecording() {
-    if (!mediaRecorder) return;
-    if (recordingStatus === 'recording') {
-      mediaRecorder.pause();
-      pausedAt = Date.now();
-      recordingStatus = 'paused';
-      if (!transcriptionConfig.configured) stopSpeechRecognition();
-    } else if (recordingStatus === 'paused') {
-      pausedTotalMs += Date.now() - pausedAt;
-      pausedAt = 0;
-      mediaRecorder.resume();
-      recordingStatus = 'recording';
-      if (!transcriptionConfig.configured) startSpeechRecognition();
-    }
-    updateRecordingUi();
-  }
-
-  function stopRecording() {
-    if (!mediaRecorder || !['recording', 'paused'].includes(recordingStatus)) return;
-    recordingStopDurationMs = currentDuration();
-    recordingStatus = 'saving';
-    if (!transcriptionConfig.configured) stopSpeechRecognition();
-    transcriptionFinishPromise = transcriptionStartPromise
-      ? finishCloudTranscription()
-      : Promise.resolve({ ok: false, error: 'not_active', transcript: recordingTranscript });
-    clearInterval(recordingTimer);
-    recordingTimer = null;
-    updateRecordingUi();
-    try {
-      mediaRecorder.stop();
-    } catch (error) {
-      stopMediaTracks();
-      recordingStatus = 'idle';
-      discardRecordingDraft();
-      updateRecordingUi();
-    }
-  }
-
-  if (recordStart) recordStart.addEventListener('click', startRecording);
-  if (recordPause) recordPause.addEventListener('click', togglePauseRecording);
-  if (recordStop) recordStop.addEventListener('click', stopRecording);
-  if (recordingNew) recordingNew.addEventListener('click', startRecording);
-  if (recordingConfigure) recordingConfigure.addEventListener('click', openTranscriptionSettings);
   if (settingsApiConfigure) settingsApiConfigure.addEventListener('click', openTranscriptionSettings);
   if (transcriptionSettingsClose) transcriptionSettingsClose.addEventListener('click', closeTranscriptionSettings);
   if (transcriptionSettingsCancel) transcriptionSettingsCancel.addEventListener('click', closeTranscriptionSettings);
@@ -1789,11 +1061,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
         : '获取模型列表失败，请检查 Base URL 和 API Key 后重试。';
     }
   });
-  if (transcriptionApiHelp) {
-    transcriptionApiHelp.addEventListener('click', () => {
-      window.notchAPI?.openExternal('https://bailian.console.aliyun.com/cn-beijing/?tab=app#/api-key');
-    });
-  }
   if (llmApiHelp) {
     llmApiHelp.addEventListener('click', () => {
       window.notchAPI?.openExternal('https://platform.deepseek.com/api_keys');
@@ -1810,22 +1077,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       openTranscriptionSettings();
     });
   }
-  settingsFeatureList?.addEventListener('change', async (event) => {
-    const input = event.target.closest('input[data-settings-feature]');
-    if (!input || !window.notchAPI?.setFeature) return;
-    input.disabled = true;
-    const result = await window.notchAPI.setFeature(input.dataset.settingsFeature, input.checked)
-      .catch(() => ({ ok: false }));
-    input.disabled = false;
-    if (!result?.ok) {
-      input.checked = !input.checked;
-      setSettingsNote('功能显示设置保存失败，请重试。', true);
-      return;
-    }
-    settingsAppSettings = result.settings || settingsAppSettings;
-    renderSettingsPanel();
-    setSettingsNote('显示功能已更新。');
-  });
   settingsHomeModuleList?.addEventListener('change', async (event) => {
     const input = event.target.closest('input[data-settings-home-module]');
     if (!input || !window.NotchHome?.setModuleVisible) return;
@@ -1838,8 +1089,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
     if (!result?.ok) {
       const message = result?.error === 'at_least_one_required'
         ? '首页至少保留一个组件'
-        : result?.error === 'recording_active'
-          ? '录音进行中，暂时不能隐藏快速录音'
           : result?.error === 'layout_read_only'
             ? '首页布局已进入安全模式，本次会话不能修改组件'
             : result?.error === 'layout_invalid'
@@ -1855,19 +1104,6 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       ? '布局已更新，仅当前会话生效，设置未能保存'
       : input.checked ? '首页组件已恢复' : '首页组件已隐藏';
     if (typeof showStatusToast === 'function') showStatusToast(message);
-  });
-  settingsMirrorChoose?.addEventListener('click', async () => {
-    if (!window.notchAPI?.chooseMirrorImage) return;
-    settingsMirrorChoose.disabled = true;
-    const result = await window.notchAPI.chooseMirrorImage().catch(() => ({ ok: false }));
-    settingsMirrorChoose.disabled = false;
-    if (result?.canceled) return;
-    if (!result?.ok) {
-      setSettingsNote('镜子配图替换失败。', true);
-      return;
-    }
-    applySettingsMirrorCover(result.dataUrl);
-    setSettingsNote('首页镜子配图已更新。');
   });
   settingsShortcutChange?.addEventListener('click', () => {
     document.dispatchEvent(new CustomEvent('notch:record-shortcut'));
@@ -2026,289 +1262,13 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
     renderSettingsPanel();
   });
   window.notchAPI?.onWorkspaceChanged?.(() => refreshSettingsPanel());
-  window.notchAPI?.onMirrorImageChanged?.(applySettingsMirrorCover);
 
-  async function loadRecordingAudio(recording, container) {
-    if (!window.notchAPI || !recording.audioPath) return;
-    const result = await window.notchAPI.readRecording(recording.audioPath);
-    if (!result || selectedRecordingId !== recording.id || !container.isConnected) {
-      container.textContent = '音频文件不可用';
-      return;
-    }
-    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-    currentAudioUrl = URL.createObjectURL(new Blob([result.bytes], { type: result.mimeType }));
-    const audio = document.createElement('audio');
-    audio.controls = true;
-    audio.preload = 'metadata';
-    audio.src = currentAudioUrl;
-    container.replaceChildren(audio);
-  }
-
-  function renderRecordingDetail() {
-    if (!recordingDetail) return;
-    const recording = recordings.find((item) => item.id === selectedRecordingId);
-    recordingDetail.replaceChildren();
-    if (!recording) {
-      const empty = document.createElement('div');
-      empty.className = 'recording-detail-empty';
-      empty.textContent = '完成一次录音后，音频和转写文本会保存在这里。';
-      recordingDetail.appendChild(empty);
-      return;
-    }
-    if (recording.isDraft) {
-      const liveHeader = document.createElement('header');
-      liveHeader.className = 'recording-live-head';
-      const liveState = document.createElement('div');
-      liveState.className = 'recording-live-state';
-      const liveDot = document.createElement('span');
-      liveDot.className = 'recording-state-dot';
-      liveDot.dataset.recordingLiveDot = '';
-      liveDot.dataset.state = recordingStatus;
-      const liveLabel = document.createElement('strong');
-      liveLabel.dataset.recordingLiveState = '';
-      const liveTime = document.createElement('time');
-      liveTime.dataset.recordingLiveTime = '';
-      liveState.append(liveDot, liveLabel);
-      liveHeader.append(liveState, liveTime);
-
-      const liveAudio = document.createElement('div');
-      liveAudio.className = 'recording-live-audio';
-      const liveAudioTitle = document.createElement('strong');
-      liveAudioTitle.textContent = '音频正在本机录制';
-      const liveAudioHint = document.createElement('span');
-      liveAudioHint.textContent = '结束后会自动保存并出现播放器';
-      const liveControls = document.createElement('div');
-      liveControls.className = 'recording-live-controls';
-      const pause = document.createElement('button');
-      pause.type = 'button';
-      pause.className = 'workspace-button compact recording-live-pause';
-      pause.textContent = recordingStatus === 'paused' ? '继续' : '暂停';
-      pause.addEventListener('click', togglePauseRecording);
-      const stop = document.createElement('button');
-      stop.type = 'button';
-      stop.className = 'workspace-button compact primary recording-live-stop';
-      stop.textContent = '结束并保存';
-      stop.addEventListener('click', stopRecording);
-      liveControls.append(pause, stop);
-      liveAudio.append(liveAudioTitle, liveAudioHint, liveControls);
-
-      const transcriptHead = document.createElement('div');
-      transcriptHead.className = 'recording-transcript-head';
-      const transcriptLabel = document.createElement('span');
-      transcriptLabel.className = 'tile-label';
-      transcriptLabel.textContent = '实时转写';
-      const configure = document.createElement('button');
-      configure.type = 'button';
-      configure.className = 'workspace-button compact recording-live-configure';
-      configure.dataset.action = 'configure-transcription';
-      configure.textContent = '配置 API';
-      configure.addEventListener('click', openTranscriptionSettings);
-      transcriptHead.append(transcriptLabel, configure);
-
-      const transcript = document.createElement('textarea');
-      transcript.className = 'recording-transcript-editor recording-live-transcript';
-      transcript.readOnly = true;
-      transcript.dataset.recordingLiveTranscript = '';
-      transcript.placeholder = '开始说话后，转写内容会出现在这里。';
-      transcript.setAttribute('aria-label', '实时转写文本');
-      const feedback = document.createElement('p');
-      feedback.className = 'recording-live-feedback';
-      feedback.dataset.recordingLiveFeedback = '';
-      feedback.setAttribute('aria-live', 'polite');
-      recordingDetail.append(liveHeader, liveAudio, transcriptHead, transcript, feedback);
-      syncRecordingDraftUi();
-      return;
-    }
-    const header = document.createElement('header');
-    header.className = 'recording-detail-head';
-    const title = document.createElement('input');
-    title.className = 'recording-title-input';
-    title.value = recording.title;
-    title.setAttribute('aria-label', '录音名称');
-    const meta = document.createElement('span');
-    meta.textContent = `${recording.category || '未分类'} · ${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
-    header.append(title, meta);
-
-    const audioWrap = document.createElement('div');
-    audioWrap.className = 'recording-audio';
-    audioWrap.textContent = '正在读取音频…';
-
-    const transcriptHead = document.createElement('div');
-    transcriptHead.className = 'recording-transcript-head';
-    const label = document.createElement('span');
-    label.className = 'tile-label';
-    label.textContent = '转写文本';
-    const actions = document.createElement('div');
-    actions.append(
-      createIconButton('copy-recording', '复制转写文本', COPY_ICON),
-      createIconButton('reveal-recording', '在文件夹中显示', OPEN_ICON),
-      createIconButton('delete-recording', '删除录音', DELETE_ICON, true)
-    );
-    transcriptHead.append(label, actions);
-
-    const transcript = document.createElement('textarea');
-    transcript.className = 'recording-transcript-editor';
-    transcript.value = recording.transcript;
-    transcript.placeholder = '当前环境没有生成实时转写。你仍可播放音频，或在这里补充文字。';
-    transcript.setAttribute('aria-label', '录音转写文本');
-    recordingDetail.append(header, audioWrap, transcriptHead, transcript);
-
-    title.addEventListener('change', () => {
-      if (title.value.trim()) recording.title = title.value.trim();
-      title.value = recording.title;
-      persistRecordings();
-      renderRecordingList();
-    });
-    transcript.addEventListener('input', () => {
-      recording.transcript = transcript.value;
-      persistRecordings();
-    });
-    actions.addEventListener('click', async (event) => {
-      const action = event.target.closest('[data-action]');
-      if (!action) return;
-      if (action.dataset.action === 'copy-recording' && window.notchAPI && recording.transcript) {
-        await window.notchAPI.writeClipboard({ type: 'text', text: recording.transcript });
-      }
-      if (action.dataset.action === 'reveal-recording' && window.notchAPI && recording.audioPath) {
-        await window.notchAPI.revealRecording(recording.audioPath);
-      }
-      if (action.dataset.action === 'delete-recording') {
-        await deleteSingleRecording(recording.id);
-      }
-    });
-    loadRecordingAudio(recording, audioWrap);
-  }
-
-  async function deleteSingleRecording(recordingId) {
-    const recording = recordings.find((item) => item.id === recordingId);
-    if (!recording) return;
-    if (window.notchAPI && recording.audioPath) {
-      await window.notchAPI.deleteRecording(recording.audioPath).catch(() => false);
-    }
-    const next = Domain.removeRecordingState(
-      recordings,
-      recording.id,
-      [...recordingSelection],
-      selectedRecordingId
-    );
-    recordings = next.recordings;
-    recordingSelection = new Set(next.selection);
-    selectedRecordingId = next.selectedId;
-    recordingSelectionAnchor = selectedRecordingId || null;
-    persistRecordings();
-    renderRecordings();
-  }
-
-  function renderRecordingList() {
-    if (!recordingList) return;
-    recordingList.replaceChildren();
-    if (recordingBulkDelete) {
-      recordingBulkDelete.hidden = recordingSelection.size === 0;
-      recordingBulkDelete.textContent = '删除';
-      recordingBulkDelete.setAttribute('aria-label', recordingSelection.size
-        ? `删除 ${recordingSelection.size} 项`
-        : '删除所选');
-    }
-    if (!recordings.length) {
-      const empty = document.createElement('div');
-      empty.className = 'recording-list-empty';
-      empty.textContent = '还没有录音';
-      recordingList.appendChild(empty);
-      return;
-    }
-    recordings.forEach((recording) => {
-      const row = document.createElement('div');
-      row.className = `recording-item${recording.id === selectedRecordingId ? ' active' : ''}${recordingSelection.has(recording.id) ? ' multi-selected' : ''}${recording.isDraft ? ' is-live' : ''}`;
-      row.dataset.id = recording.id;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'recording-item-main';
-      button.setAttribute('aria-label', `打开录音：${recording.title}`);
-      const title = document.createElement('strong');
-      title.textContent = recording.title;
-      const preview = document.createElement('span');
-      preview.dataset.recordingPreview = '';
-      preview.textContent = recording.isDraft ? (currentRecordingText() || currentRecordingFeedback()) : (recording.transcript || '仅音频 · 暂无转写');
-      const meta = document.createElement('time');
-      meta.dataset.recordingMeta = '';
-      meta.textContent = recording.isDraft
-        ? `${recordingStatus === 'saving' ? '保存中' : recordingStatus === 'paused' ? '已暂停' : '录音中'} · ${formatClock(recording.durationMs)}`
-        : `${formatShortDate(recording.createdAt)} · ${formatClock(recording.durationMs)}`;
-      button.append(title, preview, meta);
-      row.append(button);
-      if (!recording.isDraft) {
-        const remove = createIconButton('delete-recording-item', `删除录音：${recording.title}`, DELETE_ICON, true);
-        remove.classList.add('recording-item-delete');
-        row.append(remove);
-      }
-      recordingList.appendChild(row);
-    });
-  }
-
-  function renderRecordings() {
-    if (recordingCount) recordingCount.textContent = `${recordings.length} 条`;
-    renderRecordingList();
-    renderRecordingDetail();
-  }
-
-  if (recordingList) {
-    recordingList.addEventListener('click', async (event) => {
-      const remove = event.target.closest('[data-action="delete-recording-item"]');
-      if (remove) {
-        event.preventDefault();
-        event.stopPropagation();
-        const row = remove.closest('.recording-item[data-id]');
-        if (row) await deleteSingleRecording(row.dataset.id);
-        return;
-      }
-      const item = event.target.closest('.recording-item[data-id]');
-      if (!item) return;
-      const targetRecording = recordings.find((recording) => recording.id === item.dataset.id);
-      if (event.shiftKey && targetRecording && !targetRecording.isDraft) {
-        event.preventDefault();
-        const result = Domain.updateRangeSelection(
-          recordings.filter((recording) => !recording.isDraft).map((recording) => recording.id),
-          [...recordingSelection],
-          item.dataset.id,
-          recordingSelectionAnchor,
-          true
-        );
-        recordingSelection = new Set(result.selected);
-        recordingSelectionAnchor = result.anchor;
-        renderRecordingList();
-        return;
-      }
-      selectedRecordingId = item.dataset.id;
-      recordingSelectionAnchor = selectedRecordingId;
-      renderRecordings();
-    });
-  }
-
-  recordingBulkDelete?.addEventListener('click', async () => {
-    if (!recordingSelection.size) return;
-    const targets = recordings.filter((recording) => !recording.isDraft && recordingSelection.has(recording.id));
-    if (!targets.length) return;
-    if (window.notchAPI) {
-      await Promise.all(targets.map((recording) => recording.audioPath
-        ? window.notchAPI.deleteRecording(recording.audioPath).catch(() => false)
-        : Promise.resolve(true)));
-    }
-    const targetIds = new Set(targets.map((recording) => recording.id));
-    recordings = recordings.filter((recording) => !targetIds.has(recording.id));
-    recordingSelection.clear();
-    selectedRecordingId = recordings[0] && recordings[0].id;
-    recordingSelectionAnchor = selectedRecordingId || null;
-    persistRecordings();
-    renderRecordings();
-  });
-
-  // ============ 当前窗口 ============
-  const windowsRefresh = document.getElementById('windows-refresh');
-  const windowsHidden = document.getElementById('windows-hidden');
-  const windowList = document.getElementById('window-list');
   let windows = [];
   let hiddenWindows = new Set(loadJson(HIDDEN_WINDOWS_KEY, []).filter((item) => typeof item === 'string'));
   let windowsLoading = false;
+  const windowsRefresh = document.getElementById('windows-refresh');
+  const windowsHidden = document.getElementById('windows-hidden');
+  const windowList = document.getElementById('window-list');
   let workspaceTab = document.querySelector('.tab.active')?.dataset.tab || 'home';
   let workspaceExpanded = document.getElementById('app')?.classList.contains('expanded') || false;
   let homeWindowsVisible = window.NotchHome?.isVisible?.('windows') !== false;
@@ -2527,7 +1487,6 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
     renderHomeModuleSettings();
     if (restored && workspaceExpanded && workspaceTab === 'home') refreshWindows(true);
   });
-  document.addEventListener('notch:recording-state-changed', renderHomeModuleSettings);
 
   // ============ 本地汽水音乐 ============
   const homeMusic = document.getElementById('home-music');
@@ -2887,39 +1846,22 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
     commandSelectionAnchor = null;
     linkSelection.clear();
     linkSelectionAnchor = null;
-    recordingSelection.clear();
-    recordingSelectionAnchor = selectedRecordingId || null;
     credentialSelection.clear();
     credentialAnchor = null;
     renderCommands();
     renderLinkGroups();
-    renderRecordingList();
     renderCredentials();
   });
 
   setInterval(() => refreshWindows(), 6000);
 
-  window.addEventListener('beforeunload', () => {
-    stopSpeechRecognition();
-    stopTranscriptionAudioPipeline();
-    if (transcriptionStartPromise && window.notchAPI) window.notchAPI.finishTranscription().catch(() => {});
-    stopMediaTracks();
-    if (currentAudioUrl) URL.revokeObjectURL(currentAudioUrl);
-  });
 
   renderCommands();
   renderLinkGroups();
-  renderRecordings();
   renderWindows();
-  updateRecordingUi();
   loadTranscriptionConfig();
   refreshSettingsPanel();
   refreshMusicStatus();
   loadCredentials();
 
-  window.NotchWorkspace = {
-    refreshWindows,
-    startRecording,
-    isRecordingActive: isRecordingBusy,
-  };
 })();
