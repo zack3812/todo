@@ -3793,6 +3793,107 @@ body {
 }
 .weekly-content hr { border: none; border-top: 1px solid var(--hairline); margin: 8px 0; }
 
+/* ============ AI 周报胶囊内 · 全局待办搜索 ============ */
+.todo-search {
+  position: relative;
+  flex-shrink: 0;
+}
+.todo-search-input {
+  width: 148px;
+  height: 22px;
+  padding: 0 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-1);
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color .15s ease, width .2s ease;
+}
+.todo-search-input::placeholder { color: var(--text-3); }
+.todo-search-input:focus {
+  border-color: var(--accent-blue, #438CFF);
+  width: 176px;
+}
+.todo-search-results {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(440px, calc(100vw - 48px));
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface-2);
+  box-shadow: 0 18px 55px rgba(0,0,0,.42);
+  z-index: 70;
+  box-sizing: border-box;
+}
+.todo-search-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  cursor: pointer;
+  min-width: 0;
+}
+.todo-search-result:hover { background: var(--surface-3); }
+.todo-search-result .t-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.todo-search-result .t-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.todo-search-result .t-project {
+  flex-shrink: 0;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--text-2);
+  border: 1px solid var(--hairline);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.todo-search-result .t-meta {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.todo-search-result .t-done { color: var(--accent-green, #30D978); }
+.todo-search-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.todo-search-flash {
+  animation: todo-search-flash 1.4s ease-out;
+}
+@keyframes todo-search-flash {
+  0%, 100% { box-shadow: none; }
+  20%, 55% {
+    box-shadow: 0 0 0 2px rgba(67, 140, 255, .9), 0 0 16px rgba(67, 140, 255, .5);
+  }
+}
+
 /* ============ AI 周报 · 顶栏胶囊 ============ */
 .todo-weekly-card {
   position: absolute;

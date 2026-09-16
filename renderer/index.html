@@ -89,6 +89,10 @@
             </div>
             <p class="todo-weekly-meta" id="todo-weekly-meta">会结合上周总结，生成本周进展、整体进度和下周待办。</p>
             <button class="workspace-button compact primary" id="todo-weekly-generate" type="button">生成本周总结</button>
+            <div class="todo-search" id="todo-search">
+              <input class="todo-search-input" id="todo-search-input" type="search" placeholder="搜索全部待办" autocomplete="off" spellcheck="false" aria-label="搜索全部待办" />
+              <div class="todo-search-results" id="todo-search-results" hidden></div>
+            </div>
             <div class="todo-weekly-result" id="todo-weekly-result" hidden>
               <button class="todo-weekly-close" id="todo-weekly-close" type="button" aria-label="关闭周报总结">×</button>
               <article><span>本周进展</span><div id="todo-weekly-progress"></div></article>

@@ -1956,12 +1956,118 @@ async function generateWeeklySummary() {
 
 document.getElementById('weekly-generate')?.addEventListener('click', generateWeeklySummary);
 document.getElementById('todo-weekly-generate')?.addEventListener('click', generateWeeklySummary);
+// ===== 待办全局模糊搜索（顶栏胶囊） =====
+function fuzzyMatchScore(query, text) {
+  const q = String(query || '').trim().toLowerCase();
+  const t = String(text || '').toLowerCase();
+  if (!q || !t) return 0;
+  if (t === q) return 10000;
+  const idx = t.indexOf(q);
+  if (idx === 0) return 9000 - t.length;
+  if (idx > 0) return 8000 - idx * 4 - t.length;
+  let qi = 0, score = 3000, lastPos = -1;
+  for (let i = 0; i < t.length && qi < q.length; i++) {
+    if (t[i] === q[qi]) {
+      const gap = lastPos < 0 ? i : i - lastPos - 1;
+      score += 500 - Math.min(gap * 20, 300) - (i > 8 ? 40 : 0);
+      lastPos = i;
+      qi++;
+    }
+  }
+  return qi === q.length ? score : 0;
+}
+
+function searchAllTodos(query) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const data = loadData();
+  const results = [];
+  PRIORITIES.forEach((priority) => {
+    (data[priority] || []).forEach((item) => {
+      const titleScore = fuzzyMatchScore(q, item.text);
+      const projectScore = fuzzyMatchScore(q, item.project);
+      const score = Math.max(titleScore, projectScore);
+      if (score > 0) results.push({ score, priority, item });
+    });
+  });
+  results.sort((a, b) => b.score - a.score || String(a.item.deadline || '').localeCompare(String(b.item.deadline || '')));
+  return results.slice(0, 24);
+}
+
+const TODO_SEARCH_COLORS = { P0: '#FF5F57', P1: '#FF9352', P2: '#30D978', P3: '#438CFF' };
+
+function renderTodoSearchResults(query) {
+  const box = document.getElementById('todo-search-results');
+  if (!box) return;
+  const results = searchAllTodos(query);
+  if (!results.length) {
+    box.innerHTML = '<div class="todo-search-empty">没有匹配的待办</div>';
+    box.hidden = false;
+    return;
+  }
+  box.innerHTML = results.map(({ priority, item }) => {
+    const deadline = Number.isFinite(Date.parse(String(item.deadline || '')))
+      ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(item.deadline))
+      : '';
+    const project = typeof item.project === 'string' && item.project.trim()
+      ? `<span class="t-project">${escapeHtml(item.project.trim())}</span>` : '';
+    return `<div class="todo-search-result" role="button" tabindex="0" data-priority="${priority}" data-id="${escapeHtml(item.id)}">
+      <span class="t-dot" style="background:${TODO_SEARCH_COLORS[priority] || '#888'}"></span>
+      <span class="t-text">${escapeHtml(item.text)}</span>
+      ${project}
+      <span class="t-meta">${item.done ? '<span class="t-done">已完成</span>' : ''}<span>${escapeHtml(deadline)}</span></span>
+    </div>`;
+  }).join('');
+  box.hidden = false;
+}
+
+function highlightTodo(priority, id) {
+  const el = document.querySelector(`.todo-item[data-priority="${CSS.escape(priority)}"][data-id="${CSS.escape(id)}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  el.classList.remove('todo-search-flash');
+  void el.offsetWidth;
+  el.classList.add('todo-search-flash');
+  setTimeout(() => el.classList.remove('todo-search-flash'), 1600);
+}
+
+(function initTodoSearch() {
+  const input = document.getElementById('todo-search-input');
+  const box = document.getElementById('todo-search-results');
+  if (!input || !box) return;
+  let timer = null;
+  input.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (!q) { box.hidden = true; return; }
+    timer = setTimeout(() => renderTodoSearchResults(q), 120);
+  });
+  input.addEventListener('focus', () => {
+    const q = input.value.trim();
+    if (q) renderTodoSearchResults(q);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { box.hidden = true; input.blur(); }
+    if (e.key === 'Enter') { clearTimeout(timer); renderTodoSearchResults(input.value.trim()); }
+  });
+  box.addEventListener('click', (e) => {
+    const row = e.target.closest('.todo-search-result');
+    if (!row) return;
+    box.hidden = true;
+    input.value = '';
+    setActiveTab('todo');
+    highlightTodo(row.dataset.priority, row.dataset.id);
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#todo-search')) box.hidden = true;
+  });
+})();
+
 document.getElementById('todo-weekly-close')?.addEventListener('click', () => {
   const result = document.getElementById('todo-weekly-result');
   if (result) result.hidden = true;
 });
 document.getElementById('todo-weekly-open')?.addEventListener('click', () => setActiveTab('weekly'));
-document.getElementById('home-weekly-open')?.addEventListener('click', () => setActiveTab('weekly'));
 const weeklyPromptInput = document.getElementById('weekly-prompt-input');
 if (weeklyPromptInput) weeklyPromptInput.value = localStorage.getItem('notch-todo-weekly-prompt-v1') || DEFAULT_WEEKLY_PROMPT;
 document.getElementById('weekly-prompt-toggle')?.addEventListener('click', () => {
