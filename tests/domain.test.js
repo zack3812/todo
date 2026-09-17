@@ -8,6 +8,15 @@ const {
   addLinkToGroups,
   renameGroup,
   createTodo,
+  ensureUniqueTodoIds,
+  normalizeTodoData,
+  normalizeTodoTrash,
+  moveTodosToTrash,
+  normalizeTodoDeleteOutbox,
+  enqueueTodoDelete,
+  acknowledgeTodoDelete,
+  localWeekKey,
+  resolveRemoteTodoIdentity,
   updateTodo,
   currentMonthDeadline,
   calendarDeadline,
@@ -27,11 +36,13 @@ const {
   resolveDefaultPanelTab,
   settingsSummary,
   normalizeNoteArchive,
+  createNoteInArchive,
   filterNotes,
   updateNoteInArchive,
   updateNoteTitle,
   applyGeneratedNoteTitle,
   apiCredentialStatuses,
+  nexusdeskConnectionPresentation,
   prependClipboardHistory,
   createExclusiveAsyncTask,
 } = domain;
@@ -234,6 +245,79 @@ test('createTodo requires a valid DDL and preserves reminder metadata', () => {
   });
 });
 
+test('ensureUniqueTodoIds repairs duplicate ids across todo categories', () => {
+  const groups = {
+    P0: [{ id: 'same', text: '第一项' }, { id: 'same', text: '第二项' }],
+    P1: [{ id: 'same', text: '第三项' }],
+    P2: [{ id: 'unique', text: '第四项' }],
+  };
+  let nextId = 0;
+
+  assert.equal(ensureUniqueTodoIds(groups, () => `fixed-${++nextId}`), true);
+  assert.deepEqual(groups.P0.map((item) => item.id), ['same', 'fixed-1']);
+  assert.deepEqual(groups.P1.map((item) => item.id), ['fixed-2']);
+  assert.equal(groups.P2[0].id, 'unique');
+  assert.equal(ensureUniqueTodoIds(groups, () => 'unused'), false);
+});
+
+test('normalizeTodoData migrates legacy rows and preserves sync identity', () => {
+  let nextId = 0;
+  const data = normalizeTodoData({
+    P0: [' 旧格式待办 ', { id: 'same', text: '第一项', dingtalkTaskId: ' cloud-1 ' }],
+    P1: [{ id: 'same', text: '第二项', deadline: '2026-09-18T10:00:00.000Z' }],
+    P2: [{ id: 'blank', text: '   ' }],
+  }, () => `generated-${++nextId}`, 100);
+
+  assert.deepEqual(data.P0.map((item) => item.id), ['generated-1', 'same']);
+  assert.equal(data.P0[0].createdAt, 100);
+  assert.equal(data.P0[1].dingtalkTaskId, 'cloud-1');
+  assert.equal(data.P1[0].id, 'generated-2');
+  assert.equal(data.P1[0].deadline, '2026-09-18T10:00:00.000Z');
+  assert.deepEqual(data.P2, []);
+  assert.deepEqual(data.P3, []);
+});
+
+test('todo trash preserves identity and original priority for restore and cloud deletion', () => {
+  const item = { id: 'todo-1', text: ' 保留身份 ', dingtalkTaskId: 'cloud-1', deadline: '2026-09-18T10:00:00.000Z' };
+  const trash = moveTodosToTrash([{ ...item, text: '旧副本', priority: 'P0', deletedAt: 100 }], [item], 'P1', 123);
+
+  assert.deepEqual(trash, [{ ...item, text: '保留身份', priority: 'P1', deletedAt: 123 }]);
+  assert.deepEqual(normalizeTodoTrash(trash, 456), trash);
+});
+
+test('todo delete outbox deduplicates per account and clears only acknowledged deletes', () => {
+  let outbox = enqueueTodoDelete([], 'todo-1', 'alice', 100);
+  outbox = enqueueTodoDelete(outbox, 'todo-1', 'alice', 200);
+  outbox = enqueueTodoDelete(outbox, 'todo-1', 'bob', 300);
+
+  assert.deepEqual(outbox, [
+    { todoId: 'todo-1', employeeId: 'bob', queuedAt: 300 },
+    { todoId: 'todo-1', employeeId: 'alice', queuedAt: 200 },
+  ]);
+  assert.deepEqual(acknowledgeTodoDelete(outbox, 'todo-1', 'alice'), [outbox[0]]);
+  assert.deepEqual(normalizeTodoDeleteOutbox([{ todoId: '', employeeId: 'alice' }]), []);
+});
+
+test('local week keys use the local calendar date instead of UTC conversion', () => {
+  assert.equal(localWeekKey(new Date(2026, 8, 17, 0, 30)), '2026-09-14');
+});
+
+test('remote todo identity requires an exact unique local or cloud id', () => {
+  const groups = {
+    P0: [{ id: 'old', dingtalkTaskId: '' }],
+    P1: [{ id: 'other', dingtalkTaskId: 'cloud-1' }],
+  };
+
+  assert.equal(resolveRemoteTodoIdentity(groups, 'new', undefined), null);
+  assert.deepEqual(resolveRemoteTodoIdentity(groups, 'old', undefined), { priority: 'P0', index: 0, todo: groups.P0[0] });
+  assert.deepEqual(resolveRemoteTodoIdentity(groups, 'new', 'cloud-1'), { priority: 'P1', index: 0, todo: groups.P1[0] });
+  assert.equal(resolveRemoteTodoIdentity(groups, 'new', 'cloud-1', false), null);
+  groups.P2 = [{ id: 'duplicate-cloud', dingtalkTaskId: 'cloud-1' }];
+  assert.equal(resolveRemoteTodoIdentity(groups, 'new', 'cloud-1'), null);
+  groups.P3 = [{ id: 'old', dingtalkTaskId: 'cloud-2' }];
+  assert.equal(resolveRemoteTodoIdentity(groups, 'old', undefined), null);
+});
+
 test('todo editor updates text and deadline while keeping completion state', () => {
   const original = { ...createTodo('旧标题', '2026-08-22T10:30:00.000Z', 't1', 100), done: true, remindedAt: 88 };
   const updated = updateTodo(original, '新标题', '2026-08-23T09:00:00.000Z');
@@ -392,6 +476,28 @@ test('saved notes preserve cleared content and keep recently updated notes first
   assert.equal(notes[2].title, '产品复盘');
   assert.equal(notes[2].titleSource, 'model');
   assert.equal(notes[2].updatedAt, 200);
+});
+
+test('creating a note adds one editable empty record without duplicating ids', () => {
+  const base = [{ id: 'existing', content: '正文', createdAt: 100, updatedAt: 100 }];
+  const created = createNoteInArchive(base, 'new-note', 200);
+
+  assert.deepEqual(created.map((note) => note.id), ['new-note', 'existing']);
+  assert.equal(created[0].content, '');
+  assert.equal(created[0].createdAt, 200);
+  assert.deepEqual(createNoteInArchive(created, 'new-note', 300), created);
+});
+
+test('NexusDesk connection presentation keeps disconnect and logout responsibilities distinct', () => {
+  assert.deepEqual(nexusdeskConnectionPresentation('disconnected', false), {
+    statusLabel: '未登录', state: 'disconnected', connectLabel: '登录并连接', showLogout: false,
+  });
+  assert.deepEqual(nexusdeskConnectionPresentation('disconnected', true), {
+    statusLabel: '已登录，未连接', state: 'disconnected', connectLabel: '重新连接', showLogout: true,
+  });
+  assert.deepEqual(nexusdeskConnectionPresentation('connected', true), {
+    statusLabel: '已连接', state: 'connected', connectLabel: '断开连接', showLogout: true,
+  });
 });
 
 test('editing a saved note updates content and timestamp without losing its identity', () => {

@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('notchAPI', {
   setPanelShortcut: (accelerator) => ipcRenderer.invoke('settings:set-shortcut', accelerator),
   onAppSettingsChanged: (cb) => subscribe('settings:changed', (event, settings) => cb(settings)),
   getWorkspace: () => ipcRenderer.invoke('workspace:get'),
+  getSyncAuth: () => ipcRenderer.invoke('sync-auth:get'),
+  setSyncAuth: (auth) => ipcRenderer.invoke('sync-auth:set', auth),
   loadWorkspaceData: () => ipcRenderer.invoke('workspace:load-data'),
   saveWorkspaceData: (storage) => ipcRenderer.invoke('workspace:save-data', storage),
   openWorkspace: () => ipcRenderer.invoke('workspace:open'),

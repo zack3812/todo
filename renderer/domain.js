@@ -237,6 +237,146 @@
     };
   }
 
+  function ensureUniqueTodoIds(groups, createId) {
+    const seen = new Set();
+    let changed = false;
+    for (const items of Object.values(groups || {})) {
+      for (const item of Array.isArray(items) ? items : []) {
+        let id = String(item && item.id || '').trim();
+        if (!id || seen.has(id)) {
+          do id = String(createId()); while (!id || seen.has(id));
+          item.id = id;
+          changed = true;
+        }
+        seen.add(id);
+      }
+    }
+    return changed;
+  }
+
+  function normalizeTodoData(value, createId, now = Date.now()) {
+    const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    const makeId = typeof createId === 'function'
+      ? createId
+      : () => `todo-${now}-${Math.random().toString(36).slice(2, 10)}`;
+    const groups = {};
+    for (const priority of ['P0', 'P1', 'P2', 'P3']) {
+      groups[priority] = (Array.isArray(source[priority]) ? source[priority] : [])
+        .map((item) => {
+          if (typeof item === 'string') {
+            const text = item.trim();
+            return text ? { id: makeId(), text, done: false, createdAt: now } : null;
+          }
+          if (!item || typeof item !== 'object' || typeof item.text !== 'string') return null;
+          const text = item.text.trim();
+          if (!text) return null;
+          const deadline = Date.parse(String(item.deadline || ''));
+          return {
+            id: typeof item.id === 'string' && item.id ? item.id : makeId(),
+            text,
+            done: item.done === true,
+            createdAt: Number.isFinite(item.createdAt) ? item.createdAt : now,
+            deadline: Number.isFinite(deadline) ? new Date(deadline).toISOString() : '',
+            remindedAt: Math.max(0, Number(item.remindedAt) || 0),
+            completedAt: typeof item.completedAt === 'string' && item.completedAt ? item.completedAt : '',
+            project: typeof item.project === 'string' ? item.project.trim().slice(0, 24) : '',
+            dingtalkTaskId: typeof item.dingtalkTaskId === 'string' ? item.dingtalkTaskId.trim() : '',
+            dingtalkSyncedAt: Math.max(0, Number(item.dingtalkSyncedAt) || 0),
+          };
+        })
+        .filter(Boolean);
+    }
+    ensureUniqueTodoIds(groups, makeId);
+    return groups;
+  }
+
+  function normalizeTodoTrash(value, now = Date.now()) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value.filter((item) => (
+      item && typeof item === 'object' && typeof item.id === 'string' && item.id &&
+      typeof item.text === 'string' && item.text.trim() && !seen.has(item.id) && seen.add(item.id)
+    )).map((item) => ({
+      ...item,
+      text: item.text.trim(),
+      priority: ['P0', 'P1', 'P2', 'P3'].includes(item.priority) ? item.priority : 'P3',
+      deletedAt: Number.isFinite(item.deletedAt) ? item.deletedAt : now,
+    }));
+  }
+
+  function moveTodosToTrash(trash, items, priority, deletedAt = Date.now()) {
+    const moved = (Array.isArray(items) ? items : []).map((item) => ({
+      ...item,
+      priority: ['P0', 'P1', 'P2', 'P3'].includes(priority) ? priority : 'P3',
+      deletedAt,
+    }));
+    return normalizeTodoTrash([...moved, ...(Array.isArray(trash) ? trash : [])], deletedAt);
+  }
+
+  function normalizeTodoDeleteOutbox(value) {
+    if (!Array.isArray(value)) return [];
+    const seen = new Set();
+    return value.filter((entry) => {
+      const todoId = String(entry && entry.todoId || '').trim();
+      const employeeId = String(entry && entry.employeeId || '').trim();
+      const key = `${employeeId}\u0000${todoId}`;
+      if (!todoId || !employeeId || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map((entry) => ({
+      todoId: String(entry.todoId).trim(),
+      employeeId: String(entry.employeeId).trim(),
+      queuedAt: Math.max(0, Number(entry.queuedAt) || 0),
+    }));
+  }
+
+  function enqueueTodoDelete(outbox, todoId, employeeId, queuedAt = Date.now()) {
+    return normalizeTodoDeleteOutbox([
+      { todoId, employeeId, queuedAt },
+      ...(Array.isArray(outbox) ? outbox : []),
+    ]);
+  }
+
+  function acknowledgeTodoDelete(outbox, todoId, employeeId) {
+    const safeTodoId = String(todoId || '').trim();
+    const safeEmployeeId = String(employeeId || '').trim();
+    return normalizeTodoDeleteOutbox(outbox).filter((entry) => (
+      entry.todoId !== safeTodoId || entry.employeeId !== safeEmployeeId
+    ));
+  }
+
+  function localWeekKey(value = Date.now()) {
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return '';
+    const day = (date.getDay() + 6) % 7;
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - day);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const localDay = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${localDay}`;
+  }
+
+  function resolveRemoteTodoIdentity(groups, todoId, remoteTaskId, allowRemoteTaskId = true) {
+    const rows = [];
+    for (const [priority, items] of Object.entries(groups || {})) {
+      for (let index = 0; index < (Array.isArray(items) ? items.length : 0); index += 1) {
+        rows.push({ priority, index, todo: items[index] });
+      }
+    }
+    const safeTodoId = String(todoId || '').trim();
+    if (safeTodoId) {
+      const exact = rows.filter(({ todo }) => String(todo && todo.id || '') === safeTodoId);
+      if (exact.length === 1) return exact[0];
+      if (exact.length > 1) return null;
+    }
+    if (!allowRemoteTaskId) return null;
+    const safeRemoteTaskId = String(remoteTaskId || '').trim();
+    if (!safeRemoteTaskId) return null;
+    const remote = rows.filter(({ todo }) => String(todo && todo.dingtalkTaskId || '') === safeRemoteTaskId);
+    return remote.length === 1 ? remote[0] : null;
+  }
+
   function updateTodo(todo, text, deadline) {
     if (!todo || typeof todo !== 'object') return null;
     const normalized = createTodo(text, deadline, todo.id, todo.createdAt);
@@ -323,6 +463,35 @@
       })
       .filter(Boolean)
       .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  function createNoteInArchive(notes, id, now = Date.now()) {
+    const safeId = String(id || '').trim();
+    if (!safeId) return normalizeNoteArchive(notes);
+    const archive = normalizeNoteArchive(notes);
+    if (archive.some((note) => note.id === safeId)) return archive;
+    return normalizeNoteArchive([
+      { id: safeId, title: '', titleSource: '', content: '', createdAt: now, updatedAt: now },
+      ...archive,
+    ]).slice(0, 200);
+  }
+
+  function nexusdeskConnectionPresentation(status, isLoggedIn) {
+    if (!isLoggedIn) {
+      return { statusLabel: '未登录', state: 'disconnected', connectLabel: '登录并连接', showLogout: false };
+    }
+    const labels = {
+      connected: '已连接',
+      connecting: '连接中…',
+      closing: '断开中…',
+      disconnected: '已登录，未连接',
+    };
+    return {
+      statusLabel: labels[status] || '已登录，未连接',
+      state: status || 'disconnected',
+      connectLabel: status === 'connected' ? '断开连接' : '重新连接',
+      showLogout: true,
+    };
   }
 
   function updateNoteInArchive(notes, noteId, content, updatedAt = Date.now()) {
@@ -595,6 +764,15 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
     prependClipboardHistory,
     createExclusiveAsyncTask,
     createTodo,
+    ensureUniqueTodoIds,
+    normalizeTodoData,
+    normalizeTodoTrash,
+    moveTodosToTrash,
+    normalizeTodoDeleteOutbox,
+    enqueueTodoDelete,
+    acknowledgeTodoDelete,
+    localWeekKey,
+    resolveRemoteTodoIdentity,
     updateTodo,
     sortTodosForDisplay,
     filterCredentials,
@@ -602,11 +780,13 @@ defaultTab: String(appSettings.defaultTab || 'todo'),
     visiblePanelTabs,
     resolveDefaultPanelTab,
     normalizeNoteArchive,
+    createNoteInArchive,
     filterNotes,
     updateNoteInArchive,
     updateNoteTitle,
     applyGeneratedNoteTitle,
     apiCredentialStatuses,
+    nexusdeskConnectionPresentation,
     settingsSummary,
     currentMonthDeadline,
     calendarDeadline,

@@ -1,6 +1,7 @@
 (function initWorkspace() {
   const Domain = window.NotchDomain;
-  if (!Domain) return;
+  const UI = window.NotchUI;
+  if (!Domain || !UI) return;
 
   const LINKS_KEY = 'notch-link-groups';
 
@@ -71,7 +72,7 @@
       linksStatus.textContent = '';
       linksStatus.dataset.tone = tone;
     }
-    if (message && typeof showStatusToast === 'function') showStatusToast(message);
+    if (message) UI.showStatusToast(message);
   }
 
   function allLinks() {
@@ -557,9 +558,7 @@
   const settingsDefaultTab = document.getElementById('settings-default-tab');
   const settingsDefaultTabTrigger = document.getElementById('settings-default-tab-trigger');
   const settingsDefaultTabMenu = document.getElementById('settings-default-tab-menu');
-  if (typeof initCustomSelect === 'function') {
-    initCustomSelect(settingsDefaultTabTrigger, settingsDefaultTabMenu, settingsDefaultTab);
-  }
+  UI.initCustomSelect(settingsDefaultTabTrigger, settingsDefaultTabMenu, settingsDefaultTab);
   const settingsWorkspaceKind = document.getElementById('settings-workspace-kind');
   const settingsWorkspacePath = document.getElementById('settings-workspace-path');
   const settingsWorkspaceOpen = document.getElementById('settings-workspace-open');
@@ -574,16 +573,17 @@
   const nexusdeskUserId = document.getElementById('nexusdesk-user-id');
   const nexusdeskPassword = document.getElementById('nexusdesk-password');
   const nexusdeskSyncConnect = document.getElementById('nexusdesk-sync-connect');
-  const nexusdeskSyncSave = document.getElementById('nexusdesk-sync-save');
+  const nexusdeskSyncLogout = document.getElementById('nexusdesk-sync-logout');
 
   function refreshNexusdeskStatus() {
     if (!window.NexusDeskSync) return;
     const status = window.NexusDeskSync.getConnectionStatus();
-    const labelMap = { connected: '已连接', connecting: '连接中…', disconnected: '未登录', closing: '断开中…' };
     const isLoggedIn = window.NexusDeskSync.isLoggedIn();
-    nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>' + (isLoggedIn ? (labelMap[status] || status) : '未登录');
-    nexusdeskSyncStatus.dataset.state = isLoggedIn ? status : 'disconnected';
-    nexusdeskSyncConnect.textContent = isLoggedIn && status === 'connected' ? '断开' : '登录并连接';
+    const presentation = window.NotchDomain.nexusdeskConnectionPresentation(status, isLoggedIn);
+    nexusdeskSyncStatus.innerHTML = '<span class="nexusdesk-dot"></span>' + presentation.statusLabel;
+    nexusdeskSyncStatus.dataset.state = presentation.state;
+    nexusdeskSyncConnect.textContent = presentation.connectLabel;
+    if (nexusdeskSyncLogout) nexusdeskSyncLogout.hidden = !presentation.showLogout;
   }
 
   function loadNexusdeskConfig() {
@@ -624,6 +624,13 @@
         refreshNexusdeskStatus();
         return;
       }
+      if (window.NexusDeskSync.isLoggedIn()) {
+        window.NexusDeskSync.saveSyncConfig({ enabled: true });
+        nexusdeskSyncEnabled.checked = true;
+        await window.NexusDeskSync.connect();
+        refreshNexusdeskStatus();
+        return;
+      }
       const empId = nexusdeskUserId.value.trim();
       const pwd = nexusdeskPassword.value;
       if (!empId || !pwd) return;
@@ -655,7 +662,7 @@
       refreshNexusdeskStatus();
     });
 
-    nexusdeskSyncSave?.addEventListener('click', () => {
+    nexusdeskSyncLogout?.addEventListener('click', () => {
       if (!window.NexusDeskSync) return;
       window.NexusDeskSync.logout();
       nexusdeskPassword.value = '';
@@ -982,7 +989,7 @@ settingsDefaultTabTrigger.textContent = selected?.textContent || '待办';
       if (llmModel) {
         llmModel.innerHTML = [
           '<option value="">请选择模型</option>',
-          ...result.models.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`),
+          ...result.models.map((id) => `<option value="${UI.escapeHtml(id)}">${UI.escapeHtml(id)}</option>`),
         ].join('');
         llmModel.value = '';
       }
@@ -1147,20 +1154,18 @@ const previous = settingsAppSettings?.defaultTab || 'todo';
   });
   window.notchAPI?.onUpdateState?.((state) => {
     renderUpdateState(state);
-    if (typeof showStatusToast === 'function') {
-      if (state?.status === 'downloaded') {
-        showStatusToast('更新已下载，点击「重启安装」完成升级。', {
-          actionLabel: '重启安装',
-          onAction: () => window.notchAPI?.installUpdate?.(),
-          duration: 10000,
-        });
-      } else if (state?.hasUpdate && state?.mode !== 'win-auto') {
-        showStatusToast('发现新版本 v' + state.latest + '，可在设置中下载。', {
-          actionLabel: '下载',
-          onAction: () => window.notchAPI?.openUpdatePage?.(state.url),
-          duration: 6000,
-        });
-      }
+    if (state?.status === 'downloaded') {
+      UI.showStatusToast('更新已下载，点击「重启安装」完成升级。', {
+        actionLabel: '重启安装',
+        onAction: () => window.notchAPI?.installUpdate?.(),
+        duration: 10000,
+      });
+    } else if (state?.hasUpdate && state?.mode !== 'win-auto') {
+      UI.showStatusToast('发现新版本 v' + state.latest + '，可在设置中下载。', {
+        actionLabel: '下载',
+        onAction: () => window.notchAPI?.openUpdatePage?.(state.url),
+        duration: 6000,
+      });
     }
   });
   window.notchAPI?.onAppSettingsChanged?.((settings) => {

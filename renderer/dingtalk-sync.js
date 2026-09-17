@@ -3,6 +3,7 @@
  */
 
 const SYNC_CONFIG_KEY = 'nexusdesk-sync-config';
+const DELETE_OUTBOX_KEY = 'nexusdesk-todo-delete-outbox-v1';
 const DEFAULT_API_URL = 'https://nexusdesk.dpdns.org';
 const DEFAULT_WS_URL = 'wss://nexusdesk.dpdns.org/ws';
 
@@ -12,22 +13,66 @@ let reconnectDelay = 1000;
 const MAX_RECONNECT_DELAY = 30000;
 const statusListeners = new Set();
 let onRemoteTodoChange = null;
+let secureAuth = { employeeId: '', token: '' };
+let secureAuthReady = Promise.resolve();
+
+function readStoredSyncConfig() {
+  try {
+    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function loadSecureAuth() {
+  const stored = readStoredSyncConfig();
+  try {
+    const auth = await window.notchAPI?.getSyncAuth?.();
+    secureAuth = {
+      employeeId: String(auth?.employeeId || ''),
+      token: String(auth?.token || ''),
+    };
+    // Migrate credentials written by older versions, then remove the plaintext copy.
+    if (!secureAuth.token && stored.token) {
+      const migrated = await window.notchAPI?.setSyncAuth?.({
+        employeeId: String(stored.employeeId || ''),
+        token: String(stored.token || ''),
+      });
+      if (migrated?.ok) {
+        secureAuth = { employeeId: String(stored.employeeId || ''), token: String(stored.token || '') };
+      }
+    }
+  } catch (error) {
+    secureAuth = { employeeId: '', token: '' };
+  }
+  if (Object.prototype.hasOwnProperty.call(stored, 'token')) {
+    delete stored.token;
+    localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(stored));
+  }
+  return secureAuth;
+}
+
+function ensureSecureAuthLoaded() {
+  return secureAuthReady;
+}
 
 function getSyncConfig() {
   try {
-    const raw = localStorage.getItem(SYNC_CONFIG_KEY);
-    if (!raw) return { enabled: false, apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, employeeId: '', token: '', mustChangePassword: false };
-    const p = JSON.parse(raw);
-    if (Object.prototype.hasOwnProperty.call(p, 'password')) {
+    const p = readStoredSyncConfig();
+    if (Object.prototype.hasOwnProperty.call(p, 'password') || Object.prototype.hasOwnProperty.call(p, 'token')) {
       delete p.password;
+      delete p.token;
       localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(p));
     }
     return {
       enabled: p.enabled === true,
       apiUrl: p.apiUrl || DEFAULT_API_URL,
       wsUrl: p.wsUrl || DEFAULT_WS_URL,
-      employeeId: String(p.employeeId || ''),
-      token: String(p.token || ''),
+      employeeId: String(p.employeeId || secureAuth.employeeId || ''),
+      token: secureAuth.token,
       mustChangePassword: p.mustChangePassword === true,
     };
   } catch {
@@ -38,11 +83,13 @@ function getSyncConfig() {
 function saveSyncConfig(config) {
   const next = { ...getSyncConfig(), ...config };
   delete next.password;
+  delete next.token;
   localStorage.setItem(SYNC_CONFIG_KEY, JSON.stringify(next));
   return next;
 }
 
 async function login(employeeId, password) {
+  await ensureSecureAuthLoaded();
   const cfg = getSyncConfig();
   const res = await fetch(cfg.apiUrl + '/api/login', {
     method: 'POST',
@@ -51,11 +98,15 @@ async function login(employeeId, password) {
   });
   const data = await res.json();
   if (!res.ok || data.error || !data.token || !data.user) throw new Error(data.error || '登录失败');
-  saveSyncConfig({ employeeId, token: data.token, mustChangePassword: data.user.mustChangePassword });
+  const stored = await window.notchAPI?.setSyncAuth?.({ employeeId, token: data.token });
+  if (!stored?.ok) throw new Error('安全存储不可用，无法保存登录状态');
+  secureAuth = { employeeId: String(employeeId), token: String(data.token) };
+  saveSyncConfig({ employeeId, mustChangePassword: data.user.mustChangePassword });
   return data.user;
 }
 
 async function changePassword(oldPassword, newPassword) {
+  await ensureSecureAuthLoaded();
   const cfg = getSyncConfig();
   if (!cfg.token) throw new Error('Not logged in');
   const res = await fetch(cfg.apiUrl + '/api/change-password', {
@@ -99,6 +150,7 @@ function notifyStatus() {
 }
 
 async function connect() {
+  await ensureSecureAuthLoaded();
   const cfg = getSyncConfig();
   if (!cfg.enabled || !cfg.token) return { ok: false, error: 'not_logged_in' };
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
@@ -112,7 +164,11 @@ async function connect() {
     scheduleReconnect();
     return { ok: false, error: String(e) };
   }
-  ws.onopen = () => { reconnectDelay = 1000; notifyStatus(); };
+  ws.onopen = () => {
+    reconnectDelay = 1000;
+    notifyStatus();
+    void flushTodoDeleteOutbox();
+  };
   ws.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
@@ -130,9 +186,11 @@ function disconnect() {
   if (ws) { ws.onclose = null; ws.close(); ws = null; notifyStatus(); }
 }
 
-function logout() {
+async function logout() {
   disconnect();
-  saveSyncConfig({ token: '', mustChangePassword: false });
+  secureAuth = { employeeId: '', token: '' };
+  await window.notchAPI?.setSyncAuth?.({ employeeId: '', token: '' });
+  saveSyncConfig({ employeeId: '', mustChangePassword: false });
 }
 
 function scheduleReconnect() {
@@ -148,23 +206,63 @@ function scheduleReconnect() {
 function setRemoteTodoHandler(handler) { onRemoteTodoChange = handler; }
 
 async function reportTodo(action, todoId, data) {
+  await ensureSecureAuthLoaded();
   const cfg = getSyncConfig();
-  if (!cfg.token) return;
+  if (!cfg.token) return false;
   try {
-    await fetch(cfg.apiUrl + '/api/todo/sync', {
+    const response = await fetch(cfg.apiUrl + '/api/todo/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + cfg.token },
       body: JSON.stringify({ todoId, action, clientUpdatedAt: Date.now(), ...data }),
     });
-  } catch (e) {}
+    return response.ok;
+  } catch (e) {
+    return false;
+  }
 }
 
-function syncWeekKey(value = Date.now()) {
-  const date = new Date(value);
-  const day = (date.getDay() + 6) % 7;
-  date.setHours(0, 0, 0, 0);
-  date.setDate(date.getDate() - day);
-  return date.toISOString().slice(0, 10);
+function loadTodoDeleteOutbox() {
+  try {
+    return window.NotchDomain.normalizeTodoDeleteOutbox(
+      JSON.parse(localStorage.getItem(DELETE_OUTBOX_KEY) || 'null')
+    );
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveTodoDeleteOutbox(outbox) {
+  try {
+    localStorage.setItem(DELETE_OUTBOX_KEY, JSON.stringify(outbox));
+  } catch (error) {}
+}
+
+async function reportTodoDeleted(id) {
+  await ensureSecureAuthLoaded();
+  const cfg = getSyncConfig();
+  const todoId = String(id || '').trim();
+  if (!todoId || !cfg.employeeId) return false;
+  let outbox = window.NotchDomain.enqueueTodoDelete(
+    loadTodoDeleteOutbox(), todoId, cfg.employeeId
+  );
+  saveTodoDeleteOutbox(outbox);
+  const sent = await reportTodo('delete', todoId, {});
+  if (!sent) return false;
+  outbox = window.NotchDomain.acknowledgeTodoDelete(outbox, todoId, cfg.employeeId);
+  saveTodoDeleteOutbox(outbox);
+  return true;
+}
+
+async function flushTodoDeleteOutbox() {
+  await ensureSecureAuthLoaded();
+  const cfg = getSyncConfig();
+  if (!cfg.token || !cfg.employeeId) return;
+  let outbox = loadTodoDeleteOutbox();
+  for (const entry of outbox.filter((item) => item.employeeId === cfg.employeeId)) {
+    if (!await reportTodo('delete', entry.todoId, {})) continue;
+    outbox = window.NotchDomain.acknowledgeTodoDelete(outbox, entry.todoId, entry.employeeId);
+    saveTodoDeleteOutbox(outbox);
+  }
 }
 
 function getTodoStatus(t, priority) {
@@ -172,7 +270,7 @@ function getTodoStatus(t, priority) {
     const raw = localStorage.getItem('notch-todo-progress-v1');
     if (!raw) return '';
     const tp = JSON.parse(raw);
-    const key = syncWeekKey();
+    const key = window.NotchDomain.localWeekKey();
     return tp?.[key]?.[t.id]?.status || '';
   } catch (e) { return ''; }
 }
@@ -182,27 +280,47 @@ function getTodoProgressDetail(t, priority) {
     const raw = localStorage.getItem('notch-todo-progress-v1');
     if (!raw) return {};
     const tp = JSON.parse(raw);
-    const key = syncWeekKey();
+    const key = window.NotchDomain.localWeekKey();
     const rec = tp?.[key]?.[t.id];
     return rec ? { status: rec.status || '', progressText: rec.progress || '', nextWeek: rec.nextWeek || '' } : {};
   } catch (e) { return {}; }
 }
 
+function buildTodoSyncPayload(todo, priority, overrides = {}) {
+  const detail = getTodoProgressDetail(todo, priority);
+  return {
+    text: todo.text || '',
+    project: todo.project || '',
+    priority: priority || todo.priority || 'P3',
+    done: todo.done === true,
+    dueTime: todo.deadline || null,
+    status: getTodoStatus(todo, priority),
+    progressText: detail.progressText || '',
+    nextWeek: detail.nextWeek || '',
+    ...overrides,
+  };
+}
+
 function reportTodoCreated(t, priority) {
-  const detail = getTodoProgressDetail(t, priority);
-  return reportTodo('create', t.id, { text: t.text, project: t.project, priority: priority || t.priority || 'P3', done: t.done, dueTime: t.deadline, status: getTodoStatus(t, priority), progressText: detail.progressText || '', nextWeek: detail.nextWeek || '' });
+  return reportTodo('create', t.id, buildTodoSyncPayload(t, priority));
 }
 function reportTodoUpdated(t, priority) {
-  const detail = getTodoProgressDetail(t, priority);
-  return reportTodo('update', t.id, { text: t.text, project: t.project, priority: priority || t.priority || 'P3', done: t.done, dueTime: t.deadline, status: getTodoStatus(t, priority), progressText: detail.progressText || '', nextWeek: detail.nextWeek || '' });
+  return reportTodo('update', t.id, buildTodoSyncPayload(t, priority));
 }
-function reportTodoCompleted(t, priority) { return reportTodo('complete', t.id, { text: t.text, project: t.project, priority: priority || t.priority || 'P3', done: true, dueTime: t.deadline, status: '已完成' }); }
-function reportTodoDeleted(id) { return reportTodo('delete', id, {}); }
-
-function initSync() {
+function reportTodoCompleted(t, priority) {
+  return reportTodo('complete', t.id, buildTodoSyncPayload(t, priority, { done: true, status: '已完成' }));
+}
+async function initSync() {
+  await ensureSecureAuthLoaded();
+  notifyStatus();
   const cfg = getSyncConfig();
-  if (cfg.enabled && cfg.token) connect();
+  if (cfg.enabled && cfg.token) {
+    await flushTodoDeleteOutbox();
+    await connect();
+  }
 }
+
+secureAuthReady = loadSecureAuth();
 
 if (typeof window !== 'undefined') {
   window.NexusDeskSync = {
@@ -213,7 +331,7 @@ if (typeof window !== 'undefined') {
   };
 }
 
-function syncAllTodos() {
+async function syncAllTodos() {
   try {
     var raw = localStorage.getItem('notch-todo-data');
     if (!raw) return;
@@ -232,19 +350,15 @@ function syncAllTodos() {
 
     var cloudEl = document.getElementById('nexusdesk-cloud-status');
     var done = 0;
+    var failed = 0;
     for (var k = 0; k < total; k++) {
       var item = allTodos[k];
-      var detail = getTodoProgressDetail(item.t, item.priority);
-      reportTodo('create', item.t.id, {
-        text: item.t.text || '',
-        project: item.t.project || '',
-        priority: item.priority,
-        done: item.t.done || false,
-        dueTime: item.t.deadline || null,
-        status: item.t.done ? '已完成' : (detail.status || ''),
-        progressText: detail.progressText || '',
-        nextWeek: detail.nextWeek || '',
-      });
+      var sent = await reportTodo(
+        'create',
+        item.t.id,
+        buildTodoSyncPayload(item.t, item.priority, item.t.done ? { status: '已完成' } : {})
+      );
+      if (!sent) failed++;
       done++;
       if (cloudEl) {
         cloudEl.textContent = '同步中 ' + done + '/' + total;
@@ -252,8 +366,13 @@ function syncAllTodos() {
       }
     }
     if (cloudEl) {
-      cloudEl.textContent = '同步完成 (' + total + '条)';
-      cloudEl.style.color = '#34c759';
+      cloudEl.textContent = failed
+        ? '同步完成，失败 ' + failed + ' 条'
+        : '同步完成 (' + total + '条)';
+      cloudEl.style.color = failed ? '#ff3b30' : '#34c759';
     }
-  } catch (e) {}
+    return { total: total, failed: failed };
+  } catch (e) {
+    return { total: 0, failed: 0, error: String(e) };
+  }
 }

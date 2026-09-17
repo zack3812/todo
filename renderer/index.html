@@ -147,6 +147,7 @@
             <div class="todo-view-switch" role="tablist" aria-label="待办视图切换">
               <button class="todo-view-tab active" type="button" data-todo-view="active" role="tab" aria-selected="true">待办</button>
               <button class="todo-view-tab" type="button" data-todo-view="history" role="tab" aria-selected="false">历史<span class="todo-history-count" id="todo-history-count">0</span></button>
+              <button class="todo-view-tab" type="button" data-todo-view="trash" role="tab" aria-selected="false">垃圾篓<span class="todo-history-count" id="todo-trash-count">0</span></button>
               <button class="todo-view-tab todo-group-toggle" type="button" id="todo-group-toggle" title="按项目分组查看，方便归纳">分组</button>
               <button class="todo-add-button" id="todo-add-open" type="button" title="添加待办">＋ 添加</button>
               <div class="todo-search" id="todo-search">
@@ -207,6 +208,14 @@
               <ul class="todo-history-list" id="todo-history-list"></ul>
               <div class="todo-history-empty" id="todo-history-empty" hidden>还没有已完成的待办，勾选完成一件后会存档在这里</div>
             </div>
+            <div class="todo-history-view" id="todo-trash-view" hidden>
+              <div class="todo-history-header">
+                <span>已删除待办</span>
+                <button class="todo-history-clear" id="todo-trash-clear" type="button" hidden>清空垃圾篓</button>
+              </div>
+              <ul class="todo-history-list" id="todo-trash-list"></ul>
+              <div class="todo-history-empty" id="todo-trash-empty" hidden>垃圾篓是空的</div>
+            </div>
 
           </section>
 
@@ -218,10 +227,15 @@
                     <span class="tile-label">笔记库</span>
                     <strong id="notes-count">0 篇</strong>
                   </div>
-                  <label class="notes-search-wrap">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
-                    <input id="notes-search" type="search" placeholder="搜索笔记" aria-label="搜索笔记" autocomplete="off" />
-                  </label>
+                  <div class="notes-library-actions">
+                    <label class="notes-search-wrap">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>
+                      <input id="notes-search" type="search" placeholder="搜索笔记" aria-label="搜索笔记" autocomplete="off" />
+                    </label>
+                    <button class="notes-new" id="notes-new" type="button" aria-label="新建笔记" title="新建笔记">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                    </button>
+                  </div>
                 </div>
                 <div class="notes-list" id="notes-list"></div>
               </aside>
@@ -229,7 +243,7 @@
                 <div class="notes-detail-empty">
                   <span class="notes-empty-mark" aria-hidden="true">✎</span>
                   <strong>还没有保存的笔记</strong>
-                  <p>在首页的「随笔记」中写下内容，点击保存后会出现在这里。</p>
+                  <p>点击左上角的加号，新建一篇笔记。</p>
                 </div>
               </section>
             </div>
@@ -325,7 +339,7 @@
                     <div class="nexusdesk-actions">
                       <button class="workspace-button compact" id="nexusdesk-sync-connect" type="button">登录并连接</button>
                       <button class="workspace-button compact" id="nexusdesk-bind-dingtalk" type="button">绑定钉钉</button>
-                      <button class="workspace-button compact" id="nexusdesk-sync-save" type="button">断开</button>
+                      <button class="workspace-button compact" id="nexusdesk-sync-logout" type="button" hidden>退出登录</button>
                     </div>
                   </div>
                   <p>启用后，待办的创建、修改、完成、删除会实时同步到钉钉和其他设备。配置保存在本地，不上传密钥。</p>

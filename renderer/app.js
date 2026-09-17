@@ -7,12 +7,20 @@ const TODO_WEEKLY_SUMMARY_KEY = 'notch-todo-weekly-summaries-v1';
 // 只记录「用户拖过」的列；未拖过的列仍按 deadline 排序。
 const TODO_ORDER_KEY = 'notch-todo-order-v1';
 const TODO_HISTORY_KEY = 'notch-todo-history-v1';
+const TODO_TRASH_KEY = 'notch-todo-trash-v1';
 const TODO_CATEGORY_DEFAULTS = {
   P0: '重要且紧急',
   P1: '重要不紧急',
   P2: '紧急不重要',
   P3: '不重要不紧急',
 };
+const PORTABLE_STORAGE_KEYS = new Set([
+  STORAGE_KEY, TODO_CATEGORY_KEY, TODO_PROGRESS_KEY, TODO_WEEKLY_SUMMARY_KEY,
+  TODO_ORDER_KEY, TODO_HISTORY_KEY, TODO_TRASH_KEY, 'notch-todo-group-view-v1',
+  'notch-todo-group-collapsed-v1', 'notch-todo-weekly-prompt-v1', 'notch-active-tab',
+  'notch-home-note', 'notch-note-archive-v1', 'notch-note-active-archive-v1',
+  'notch-clip-history', 'notch-clip-favorites', 'notch-link-groups',
+]);
 
 const app = document.getElementById('app');
 const notch = document.getElementById('notch');
@@ -25,7 +33,7 @@ function collectLocalStorageSnapshot() {
   const result = {};
   for (let index = 0; index < localStorage.length; index += 1) {
     const key = localStorage.key(index);
-    if (key) result[key] = localStorage.getItem(key);
+    if (key && PORTABLE_STORAGE_KEYS.has(key)) result[key] = localStorage.getItem(key);
   }
   return result;
 }
@@ -38,7 +46,7 @@ async function hydratePortableWorkspace() {
     let imported = false;
     if (sessionStorage.getItem('notch-workspace-hydrated') !== '1' && snapshot && typeof snapshot === 'object') {
       Object.entries(snapshot).forEach(([key, value]) => {
-        if (typeof value === 'string' && localStorage.getItem(key) === null) {
+        if (PORTABLE_STORAGE_KEYS.has(key) && typeof value === 'string' && localStorage.getItem(key) === null) {
           localStorage.setItem(key, value);
           imported = true;
         }
@@ -150,44 +158,13 @@ function loadData() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { P0: [], P1: [], P2: [], P3: [] };
     const parsed = JSON.parse(raw);
-    return {
-      P0: normalizeTodoItems(parsed && parsed.P0),
-      P1: normalizeTodoItems(parsed && parsed.P1),
-      P2: normalizeTodoItems(parsed && parsed.P2),
-      P3: normalizeTodoItems(parsed && parsed.P3),
-    };
+    const normalized = window.NotchDomain.normalizeTodoData(parsed, generateId);
+    const serialized = JSON.stringify(normalized);
+    if (serialized !== raw) localStorage.setItem(STORAGE_KEY, serialized);
+    return normalized;
   } catch (e) {
     return { P0: [], P1: [], P2: [], P3: [] };
   }
-}
-
-function normalizeTodoItems(value) {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((item) => {
-      if (typeof item === 'string') {
-        const text = item.trim();
-        return text
-          ? { id: generateId(), text, done: false, createdAt: Date.now() }
-          : null;
-      }
-      if (!item || typeof item !== 'object' || typeof item.text !== 'string') return null;
-      const text = item.text.trim();
-      if (!text) return null;
-      return {
-        id: typeof item.id === 'string' && item.id ? item.id : generateId(),
-        text,
-        done: item.done === true,
-        createdAt: Number.isFinite(item.createdAt) ? item.createdAt : Date.now(),
-        deadline: Number.isFinite(Date.parse(String(item.deadline || '')))
-          ? new Date(Date.parse(String(item.deadline))).toISOString()
-          : '',
-        remindedAt: Math.max(0, Number(item.remindedAt) || 0),
-        completedAt: typeof item.completedAt === 'string' && item.completedAt ? item.completedAt : '',
-        project: typeof item.project === 'string' ? item.project.trim().slice(0, 24) : '',
-      };
-    })
-    .filter(Boolean);
 }
 
 function saveData(data) {
@@ -280,6 +257,24 @@ function saveTodoHistory() {
   }
 }
 
+function loadTodoTrash() {
+  try {
+    return window.NotchDomain.normalizeTodoTrash(
+      JSON.parse(localStorage.getItem(TODO_TRASH_KEY) || 'null')
+    );
+  } catch (error) {
+    return [];
+  }
+}
+
+function saveTodoTrash() {
+  try {
+    localStorage.setItem(TODO_TRASH_KEY, JSON.stringify(todoTrash));
+  } catch (error) {
+    // ignore quota errors
+  }
+}
+
 function loadTodoProgress() {
   try {
     const parsed = JSON.parse(localStorage.getItem(TODO_PROGRESS_KEY) || 'null');
@@ -320,13 +315,7 @@ function weekStart(value = Date.now()) {
 }
 
 function weekKey(value = Date.now()) {
-  // toISOString() 会按 UTC 截取日期：东八区凌晨会被归到前一天（如周一 00:30 变成周日 key）。
-  // 用本地年月日拼接，保证周 key 与界面显示的周范围一致。
-  const d = weekStart(value);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return window.NotchDomain.localWeekKey(value);
 }
 
 function previousWeekKey(value = Date.now()) {
@@ -368,6 +357,7 @@ function migrateDoneTodos() {
 }
 
 let todoHistory = loadTodoHistory();
+let todoTrash = loadTodoTrash();
 let todoProgress = loadTodoProgress();
 let weeklySummaries = loadWeeklySummaries();
 let todoView = 'active';
@@ -442,7 +432,10 @@ if (window.notchAPI && typeof window.notchAPI.onTodoReminder === 'function') {
 }
 
 function generateId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
 function checkSvg() {
@@ -565,7 +558,8 @@ function updateTodoBulkButton(priority) {
   const count = todoSelections[priority]?.size || 0;
   if (!button) return;
   button.hidden = count === 0;
-  button.textContent = '删除';
+  // 按钮必须显示实际数量，避免「只显示删除、实际删一片」的误删
+  button.textContent = count ? `删除 ${count} 项` : '删除';
   button.setAttribute('aria-label', count ? `删除 ${count} 项` : '删除所选');
 }
 
@@ -665,7 +659,7 @@ function editTodo(priority, id, text, deadline) {
   return true;
 }
 
-function toggleTodo(priority, id) {
+function toggleTodo(priority, id, options = {}) {
   const list = data[priority];
   const idx = list.findIndex((t) => t.id === id);
   if (idx === -1) return;
@@ -683,11 +677,14 @@ function toggleTodo(priority, id) {
   });
   saveData(data);
   saveTodoHistory();
-  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoCompleted(item, priority);
+  if (options.reportSync !== false && window.NexusDeskSync) {
+    window.NexusDeskSync.reportTodoCompleted(item, priority);
+  }
   renderList(priority, { previousPositions });
   updateCount(priority);
   updateTodoHistoryUI();
   requestAnimationFrame(() => flashCheckboxPop(priority, id)); // 勾选弹一下
+  if (options.showToast === false) return;
   showStatusToast('已完成，已存入历史', {
     actionLabel: '撤销',
     duration: 5000,
@@ -697,6 +694,7 @@ function toggleTodo(priority, id) {
       list.push({ ...item, done: false });
       saveData(data);
       saveTodoHistory();
+      window.NexusDeskSync?.reportTodoUpdated({ ...item, done: false }, priority);
       renderList(priority);
       updateCount(priority);
       updateTodoHistoryUI();
@@ -717,7 +715,9 @@ function deleteTodo(priority, id) {
   const nearbyItem = itemEl && (itemEl.nextElementSibling || itemEl.previousElementSibling);
   if (itemEl) itemEl.remove();
   saveData(data);
-  if (window.NexusDeskSync) window.NexusDeskSync.reportTodoDeleted(id, removed.dingtalkTaskId);
+  todoTrash = window.NotchDomain.moveTodosToTrash(todoTrash, [removed], priority);
+  saveTodoTrash();
+  updateTodoTrashUI();
   updateCount(priority);
   if (shouldRestoreFocus) {
     const nextFocus =
@@ -726,20 +726,23 @@ function deleteTodo(priority, id) {
     if (nextFocus) nextFocus.focus({ preventScroll: true });
   }
   const summary = removed.text.length > 18 ? `${removed.text.slice(0, 18)}…` : removed.text;
-  showStatusToast(`已删除“${summary}”`, {
+  showStatusToast(`已移入垃圾篓“${summary}”`, {
     actionLabel: '撤销',
     duration: 5000,
     onAction: () => {
       if (list.some((item) => item.id === removed.id)) return;
+      todoTrash = todoTrash.filter((item) => item.id !== removed.id);
       list.splice(Math.min(index, list.length), 0, removed);
       saveData(data);
+      saveTodoTrash();
+      updateTodoTrashUI();
       renderList(priority);
       updateCount(priority);
       const restored = document.querySelector(
         `.todo-item[data-priority="${priority}"][data-id="${CSS.escape(id)}"] [data-action="toggle"]`
       );
       if (restored) restored.focus({ preventScroll: true });
-      showStatusToast('已撤销删除');
+      showStatusToast('已从垃圾篓恢复');
     },
   });
 }
@@ -754,13 +757,14 @@ function handleRemoteTodoChange(event) {
   if (event.source === 'desktop') return;
 
   const { todoId, dingtalkTaskId, payload } = event;
-  // 在所有象限里找这条待办
-  let foundPriority = null;
-  let foundIndex = -1;
-  for (const prio of Object.keys(data)) {
-    const idx = (data[prio] || []).findIndex((t) => t.id === todoId || t.dingtalkTaskId === dingtalkTaskId);
-    if (idx >= 0) { foundPriority = prio; foundIndex = idx; break; }
-  }
+  const matched = window.NotchDomain.resolveRemoteTodoIdentity(
+    data,
+    todoId,
+    dingtalkTaskId,
+    event.event !== 'todo.delete'
+  );
+  let foundPriority = matched?.priority || null;
+  let foundIndex = matched?.index ?? -1;
 
   switch (event.event) {
     case 'todo.create': {
@@ -809,16 +813,22 @@ function handleRemoteTodoChange(event) {
       if (!foundPriority) return;
       const item = data[foundPriority][foundIndex];
       if (item.done) return;
-      // 复用 toggleTodo 的完成逻辑
-      toggleTodo(foundPriority, item.id);
+      toggleTodo(foundPriority, item.id, { reportSync: false, showToast: false });
       break;
     }
     case 'todo.delete': {
-      if (!foundPriority) return;
-      data[foundPriority].splice(foundIndex, 1);
-      saveData(data);
-      renderList(foundPriority);
-      updateCount(foundPriority);
+      if (foundPriority) {
+        data[foundPriority].splice(foundIndex, 1);
+        saveData(data);
+        renderList(foundPriority);
+        updateCount(foundPriority);
+        return;
+      }
+      const trashMatches = todoTrash.filter((item) => item.id === todoId);
+      if (trashMatches.length !== 1) return;
+      todoTrash = todoTrash.filter((item) => item !== trashMatches[0]);
+      saveTodoTrash();
+      renderTodoTrash();
       break;
     }
   }
@@ -1405,6 +1415,8 @@ function initCustomSelect(trigger, menu, select) {
   const initial = select.options[select.selectedIndex];
   if (initial) trigger.textContent = initial.textContent;
 }
+
+window.NotchUI = Object.freeze({ escapeHtml, initCustomSelect, showStatusToast });
 
 const todoEditorBackdrop = document.getElementById('todo-date-popover');
 const todoEditorMonth = document.getElementById('todo-editor-month');
@@ -2188,6 +2200,13 @@ PRIORITIES.forEach((priority) => {
       renderList(priority);
       return;
     }
+    // 普通点击（非 Shift）先退出多选：防止选区残留，下次误点「删除 N 项」清空整列
+    if (todoSelections[priority] && todoSelections[priority].size) {
+      todoSelections[priority].clear();
+      todoSelectionAnchors[priority] = null;
+      document.querySelectorAll(`.todo-item[data-priority="${priority}"].multi-selected`).forEach((el) => el.classList.remove('multi-selected'));
+      updateTodoBulkButton(priority);
+    }
     const target = e.target.closest('[data-action]');
     if (!target) return;
     const action = target.dataset.action;
@@ -2498,13 +2517,42 @@ document.querySelectorAll('.todo-bulk-delete[data-bulk-priority]').forEach((butt
     const priority = button.dataset.bulkPriority;
     const selected = todoSelections[priority];
     if (!selected || !selected.size) return;
-    data[priority] = (data[priority] || []).filter((item) => !selected.has(item.id));
+    const list = data[priority] || [];
+    const doomed = list.filter((item) => selected.has(item.id));
+    if (!doomed.length) return;
+    // 确认弹窗：列出将删除的条目，数量与内容一目了然
+    const names = doomed.map((item) => '· ' + item.text).join('\n');
+    const ok = window.confirm('确定将 ' + doomed.length + ' 条待办移入垃圾篓？\n\n' + names + '\n\n移入后可在垃圾篓恢复。');
+    if (!ok) return;
+    data[priority] = list.filter((item) => !selected.has(item.id));
     selected.clear();
     todoSelectionAnchors[priority] = null;
     saveData(data);
+    todoTrash = window.NotchDomain.moveTodosToTrash(todoTrash, doomed, priority);
+    saveTodoTrash();
+    updateTodoTrashUI();
     renderList(priority);
     updateCount(priority);
-    showStatusToast('已删除所选待办');
+    const removed = doomed;
+    showStatusToast('已移入垃圾篓 ' + removed.length + ' 条待办', {
+      actionLabel: '撤销',
+      duration: 5000,
+      onAction: () => {
+        const cur = data[priority] || [];
+        const existing = new Set(cur.map((item) => item.id));
+        const missing = removed.filter((item) => !existing.has(item.id));
+        if (!missing.length) return;
+        const restoredIds = new Set(missing.map((item) => item.id));
+        todoTrash = todoTrash.filter((item) => !restoredIds.has(item.id));
+        missing.forEach((item) => cur.push(item));
+        saveData(data);
+        saveTodoTrash();
+        updateTodoTrashUI();
+        renderList(priority);
+        updateCount(priority);
+        showStatusToast('已从垃圾篓恢复');
+      },
+    });
   });
 });
 
@@ -2548,6 +2596,7 @@ const notesList = document.getElementById('notes-list');
 const notesSearch = document.getElementById('notes-search');
 const notesDetail = document.getElementById('notes-detail');
 const notesCount = document.getElementById('notes-count');
+const notesNewButton = document.getElementById('notes-new');
 const noteFormatActions = document.getElementById('note-format-actions');
 const noteModeButtons = Array.from(document.querySelectorAll('[data-note-mode]'));
 const noteEditButton = document.getElementById('note-edit-btn');
@@ -3181,7 +3230,7 @@ function renderNotesDetail(notes = loadNoteArchive()) {
     const hasArchive = loadNoteArchive().length > 0;
     empty.innerHTML = hasArchive
       ? '<span class="notes-empty-mark" aria-hidden="true">⌕</span><strong>没有匹配的笔记</strong><p>试试搜索其他关键词。</p>'
-      : '<span class="notes-empty-mark" aria-hidden="true">✎</span><strong>还没有保存的笔记</strong><p>在首页的「随笔记」中写下内容，点击保存后会出现在这里。</p>';
+      : '<span class="notes-empty-mark" aria-hidden="true">✎</span><strong>还没有保存的笔记</strong><p>点击左上角的加号，新建一篇笔记。</p>';
     notesDetail.append(empty);
     return;
   }
@@ -3376,6 +3425,19 @@ noteSaveButton?.addEventListener('click', () => {
   selectedNoteId = activeId;
   renderNotesLibrary();
   showStatusToast('笔记已保存');
+});
+
+notesNewButton?.addEventListener('click', () => {
+  flushNotesEditorSave();
+  const now = Date.now();
+  const id = generateId();
+  const notes = window.NotchDomain.createNoteInArchive(loadNoteArchive(), id, now);
+  localStorage.setItem(NOTE_ARCHIVE_KEY, JSON.stringify(notes));
+  localStorage.setItem(NOTE_ACTIVE_ARCHIVE_KEY, id);
+  if (notesSearch) notesSearch.value = '';
+  selectedNoteId = id;
+  renderNotesLibrary();
+  requestAnimationFrame(() => notesDetail?.querySelector('#notes-editor')?.focus({ preventScroll: true }));
 });
 
 notesList?.addEventListener('click', (event) => {
@@ -4036,33 +4098,56 @@ function renderTodoHistory() {
   list.innerHTML = todoHistory.map(historyRowHtml).join('');
 }
 
+function updateTodoTrashUI() {
+  const countEl = document.getElementById('todo-trash-count');
+  if (countEl) countEl.textContent = String(todoTrash.length);
+  const clearBtn = document.getElementById('todo-trash-clear');
+  if (clearBtn) clearBtn.hidden = todoTrash.length === 0;
+}
+
+function trashRowHtml(item) {
+  const name = todoCategoryNames[item.priority] || item.priority;
+  return `<li class="history-item" data-id="${escapeHtml(item.id)}">
+    <span class="dot dot-${item.priority}" title="${escapeHtml(name)}"></span>
+    <span class="history-text" title="${escapeHtml(item.text)}">${escapeHtml(item.text)}</span>
+    <span class="history-meta">删除于 ${formatHistoryDate(item.deletedAt)}</span>
+    <button type="button" class="history-restore" data-action="restore" title="恢复待办" aria-label="恢复：${escapeHtml(item.text)}">↩</button>
+    <button type="button" class="history-delete" data-action="delete" title="永久删除" aria-label="永久删除：${escapeHtml(item.text)}">×</button>
+  </li>`;
+}
+
+function renderTodoTrash() {
+  const list = document.getElementById('todo-trash-list');
+  const empty = document.getElementById('todo-trash-empty');
+  if (!list || !empty) return;
+  updateTodoTrashUI();
+  list.innerHTML = todoTrash.map(trashRowHtml).join('');
+  empty.hidden = todoTrash.length !== 0;
+}
+
 function setTodoView(view) {
-  if (view !== 'active' && view !== 'history') return;
+  if (!['active', 'history', 'trash'].includes(view)) return;
   todoView = view;
   const activeView = document.getElementById('todo-active-view');
   const historyView = document.getElementById('todo-history-view');
-  document.querySelectorAll('.todo-view-tab').forEach((btn) => {
+  const trashView = document.getElementById('todo-trash-view');
+  document.querySelectorAll('.todo-view-tab[data-todo-view]').forEach((btn) => {
     const active = btn.dataset.todoView === view;
     btn.classList.toggle('active', active);
     btn.setAttribute('aria-selected', String(active));
   });
-  if (view === 'history') {
-    if (activeView) activeView.hidden = true;
-    if (historyView) {
-      historyView.hidden = false;
-      renderTodoHistory();
-    }
-  } else {
-    if (historyView) historyView.hidden = true;
-    if (activeView) activeView.hidden = false;
-  }
+  if (activeView) activeView.hidden = view !== 'active';
+  if (historyView) historyView.hidden = view !== 'history';
+  if (trashView) trashView.hidden = view !== 'trash';
+  if (view === 'history') renderTodoHistory();
+  if (view === 'trash') renderTodoTrash();
 }
 
 function restoreTodoFromHistory(id) {
   const index = todoHistory.findIndex((h) => h.id === id);
   if (index === -1) return;
   const [h] = todoHistory.splice(index, 1);
-  (data[h.priority] || (data[h.priority] = [])).push({
+  const restored = {
     id: h.id,
     text: h.text,
     done: false,
@@ -4070,12 +4155,14 @@ function restoreTodoFromHistory(id) {
     deadline: h.deadline || '',
     project: typeof h.project === 'string' ? h.project : '',
     remindedAt: 0,
-  });
+  };
+  (data[h.priority] || (data[h.priority] = [])).push(restored);
   saveData(data);
   saveTodoHistory();
   renderList(h.priority);
   updateCount(h.priority);
   renderTodoHistory();
+  window.NexusDeskSync?.reportTodoUpdated(restored, h.priority);
   showStatusToast('已恢复为未完成');
 }
 
@@ -4097,7 +4184,53 @@ function clearTodoHistory() {
   showStatusToast('已清空完成存档');
 }
 
-document.querySelectorAll('.todo-view-tab').forEach((btn) => {
+function restoreTodoFromTrash(id) {
+  const index = todoTrash.findIndex((item) => item.id === id);
+  if (index === -1) return;
+  const [stored] = todoTrash.splice(index, 1);
+  const priority = PRIORITIES.includes(stored.priority) ? stored.priority : 'P3';
+  const duplicate = PRIORITIES.some((key) => (data[key] || []).some((item) => item.id === stored.id));
+  const restored = { ...stored };
+  delete restored.priority;
+  delete restored.deletedAt;
+  if (duplicate) {
+    restored.id = generateId();
+    restored.dingtalkTaskId = '';
+    restored.dingtalkSyncedAt = 0;
+  }
+  (data[priority] || (data[priority] = [])).push(restored);
+  saveData(data);
+  saveTodoTrash();
+  renderList(priority);
+  updateCount(priority);
+  renderTodoTrash();
+  showStatusToast('已恢复待办');
+}
+
+function permanentlyDeleteTodoFromTrash(id) {
+  const index = todoTrash.findIndex((item) => item.id === id);
+  if (index === -1) return;
+  const item = todoTrash[index];
+  if (!window.confirm(`永久删除“${item.text}”？\n\n云端副本也会同步删除，且无法恢复。`)) return;
+  todoTrash.splice(index, 1);
+  saveTodoTrash();
+  renderTodoTrash();
+  window.NexusDeskSync?.reportTodoDeleted(item.id, item.dingtalkTaskId);
+  showStatusToast('已永久删除');
+}
+
+function clearTodoTrash() {
+  if (!todoTrash.length) return;
+  if (!window.confirm(`确定清空垃圾篓中的 ${todoTrash.length} 条待办？\n\n云端副本也会同步删除，且无法恢复。`)) return;
+  const deleted = todoTrash;
+  todoTrash = [];
+  saveTodoTrash();
+  renderTodoTrash();
+  deleted.forEach((item) => window.NexusDeskSync?.reportTodoDeleted(item.id, item.dingtalkTaskId));
+  showStatusToast('已清空垃圾篓');
+}
+
+document.querySelectorAll('.todo-view-tab[data-todo-view]').forEach((btn) => {
   btn.addEventListener('click', () => setTodoView(btn.dataset.todoView));
 });
 const historyList = document.getElementById('todo-history-list');
@@ -4109,7 +4242,17 @@ historyList?.addEventListener('click', (event) => {
   else if (action === 'delete') deleteTodoFromHistory(item.dataset.id);
 });
 document.getElementById('todo-history-clear')?.addEventListener('click', clearTodoHistory);
+const trashList = document.getElementById('todo-trash-list');
+trashList?.addEventListener('click', (event) => {
+  const item = event.target.closest('.history-item');
+  if (!item) return;
+  const action = event.target.closest('[data-action]')?.dataset.action;
+  if (action === 'restore') restoreTodoFromTrash(item.dataset.id);
+  else if (action === 'delete') permanentlyDeleteTodoFromTrash(item.dataset.id);
+});
+document.getElementById('todo-trash-clear')?.addEventListener('click', clearTodoTrash);
 updateTodoHistoryUI();
+updateTodoTrashUI();
 
 // ============ 待办 · 项目分组视图（树形，可按项目归纳） ============
 const todoGroupToggle = document.getElementById('todo-group-toggle');

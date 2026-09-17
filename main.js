@@ -215,6 +215,7 @@ const CREDENTIALS_VAULT_FILE = 'credentials.vault.json';
 const APP_SETTINGS_FILE = 'app-settings.json';
 const WORKSPACE_SETTINGS_FILE = 'workspace-settings.json';
 const WORKSPACE_DATA_FILE = 'workspace.json';
+const SYNC_AUTH_FILE = 'sync-auth.json';
 const workspacePersistenceGate = createWorkspacePersistenceGate();
 const SODA_MUSIC_APP = '/Applications/汽水音乐.app';
 const LINK_FETCH_TIMEOUT_MS = 8000;
@@ -1149,6 +1150,31 @@ function writeJsonFile(filePath, value) {
   }
 }
 
+function readSyncAuth() {
+  if (!safeStorage.isEncryptionAvailable()) return { employeeId: '', token: '' };
+  const envelope = readJsonFile(getJsonSettingsPath(SYNC_AUTH_FILE));
+  try {
+    const decoded = safeStorage.decryptString(Buffer.from(String(envelope.payload || ''), 'base64'));
+    const auth = JSON.parse(decoded);
+    return { employeeId: String(auth.employeeId || ''), token: String(auth.token || '') };
+  } catch (error) {
+    return { employeeId: '', token: '' };
+  }
+}
+
+function writeSyncAuth(auth) {
+  const employeeId = String(auth && auth.employeeId || '').trim();
+  const token = String(auth && auth.token || '');
+  const filePath = getJsonSettingsPath(SYNC_AUTH_FILE);
+  if (!token) {
+    try { fs.rmSync(filePath, { force: true }); } catch (error) {}
+    return true;
+  }
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  const payload = safeStorage.encryptString(JSON.stringify({ employeeId, token })).toString('base64');
+  return writeJsonFile(filePath, { version: 1, payload });
+}
+
 function readAppSettings() {
   const stored = readJsonFile(getJsonSettingsPath(APP_SETTINGS_FILE));
   const features = { ...DEFAULT_FEATURES, ...(stored.features || {}), home: true };
@@ -1453,6 +1479,8 @@ ipcMain.handle('settings:set-shortcut', (event, accelerator) => {
   return { ok: true, shortcut: accelerator };
 });
 ipcMain.handle('workspace:get', () => ({ path: workspaceRoot(), portable: workspaceRoot() !== app.getPath('userData') }));
+ipcMain.handle('sync-auth:get', () => readSyncAuth());
+ipcMain.handle('sync-auth:set', (event, auth) => ({ ok: writeSyncAuth(auth) }));
 ipcMain.handle('workspace:load-data', () => {
   const payload = readJsonFile(workspacePath(WORKSPACE_DATA_FILE), {});
   return payload && payload.localStorage && typeof payload.localStorage === 'object'

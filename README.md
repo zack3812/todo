@@ -33,7 +33,7 @@ TO-DO Panel 是一个常驻 macOS / Windows 屏幕顶部的本地工作台。Mac
 | 页面 | 解决什么问题 |
 | --- | --- |
 | **周报** | 汇总本周待办进度、状态与下周计划，AI 一键生成周报，独立页查看与删除历史 |
-| **待办** | 四个可改名的工作流，新建默认当天 23:30，常驻跨天或唤醒后自动刷新；本条手选日期保留，提交后恢复当天默认值。截止日期可逐月切换并自然跨年，按截止时间排序，并在到期前一小时提醒 |
+| **待办** | 四个可改名的工作流，新建默认当天 23:30，常驻跨天或唤醒后自动刷新；本条手选日期保留，提交后恢复当天默认值。截止日期可逐月切换并自然跨年，按截止时间排序，并在到期前一小时提醒。普通删除进入垃圾篓并可恢复，只有永久删除或清空垃圾篓才会同步删除云端副本 |
 | **随笔记** | Markdown 速记、归档、搜索、重命名与智能标题 |
 | **链接** | 保存公开网址，后台补全标题、图标和分组 |
 | **密钥** | 使用系统安全存储加密账号、密码和 API Key |
@@ -45,12 +45,12 @@ TO-DO Panel 是一个常驻 macOS / Windows 屏幕顶部的本地工作台。Mac
 
 ## 下载与安装
 
-> 当前稳定版本：**1.3.6** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
+> 当前稳定版本：**1.4.0** · **macOS 13.0+ Apple Silicon** / **Windows 10/11 x64（Intel / AMD 64 位）**
 
 | 平台 | 在上方 GitHub Releases 下载对应安装包 |
 | --- | --- |
-| Mac | [TO-DO-Panel-1.3.6-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.3.6/TO-DO-Panel-1.3.6-arm64.dmg) |
-| Windows | [TO-DO-Panel-1.3.6-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.3.6/TO-DO-Panel-1.3.6-windows-x64-setup.exe) |
+| Mac | [TO-DO-Panel-1.4.0-arm64.dmg](https://github.com/zack3812/todo/releases/download/v1.4.0/TO-DO-Panel-1.4.0-arm64.dmg) |
+| Windows | [TO-DO-Panel-1.4.0-windows-x64-setup.exe](https://github.com/zack3812/todo/releases/download/v1.4.0/TO-DO-Panel-1.4.0-windows-x64-setup.exe) |
 
 ### macOS
 
@@ -73,14 +73,14 @@ Windows 版在 GitHub Windows runner 上自动验证安装、启动、数据保�
 
 ## 更新日志
 
-当前稳定版本为 **v1.3.6**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
+当前稳定版本为 **v1.4.0**。正在开发但尚未发布的改动会先记录在 `[未发布]`，正式发版时再归档到对应版本，避免 README 随版本增加而持续膨胀。
 
 完整版本历史、修复内容与未发布改动见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 设计原则
 
 - **贴顶但不打扰**：折叠态宽 200px，高度跟随菜单栏；展开与通知都不使用系统窗口动画。
-- **数据留在本机**：待办、笔记、链接和工作区设置保存在本地，无后端和云同步。
+- **本地优先**：待办、笔记、链接和工作区设置默认保存在本地；启用 NexusDesk 后仅同步待办，设备凭据不会进入便携工作区。
 - **权限边界清晰**：链接元数据抓取会阻止本机、内网地址和不安全重定向；窗口聚焦只接受最近扫描缓存中的 ID。
 - **可迁移工作区**：可从菜单栏选择数据文件夹，换电脑时复制该文件夹继续使用。
 

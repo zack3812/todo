@@ -3315,6 +3315,27 @@ body {
   font-weight: 620;
   letter-spacing: -.3px;
 }
+.notes-library-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.notes-new {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-input);
+  background: var(--surface-2);
+  color: var(--text-2);
+  cursor: pointer;
+}
+.notes-new:hover { background: rgba(255,255,255,.09); color: var(--text-1); }
+.notes-new:focus-visible { outline: 2px solid rgba(126,169,255,.65); outline-offset: 2px; }
+.notes-new svg { width: 15px; height: 15px; }
 .notes-search-wrap {
   width: 154px;
   height: 32px;
